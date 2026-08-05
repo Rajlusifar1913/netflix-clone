@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root { color-scheme: dark; --stream-red: #e50914; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: #141414; }
+body { margin: 0; min-height: 100vh; font-family: "Inter", "Helvetica Neue", sans-serif; background: #141414; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button, a { transition: all 180ms ease; }
+button { cursor: pointer; }
+::selection { background: #e50914; color: white; }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.text-balance { text-wrap: balance; }
+.hero-vignette { background: linear-gradient(90deg, rgba(0,0,0,.9) 0%, rgba(0,0,0,.62) 36%, rgba(0,0,0,.08) 68%), linear-gradient(0deg, #141414 0%, transparent 35%); }
+.landing-vignette { background: linear-gradient(0deg, rgba(0,0,0,.9), rgba(0,0,0,.28) 52%, rgba(0,0,0,.8)), linear-gradient(90deg, rgba(0,0,0,.3), transparent, rgba(0,0,0,.3)); }
+.modal-scroll::-webkit-scrollbar { width: 7px; }
+.modal-scroll::-webkit-scrollbar-thumb { background: #555; border-radius: 20px; }
+
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.skeleton { background: linear-gradient(90deg, #202020 25%, #303030 50%, #202020 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+
+@media (max-width: 640px) {
+  .hero-vignette { background: linear-gradient(0deg, #141414 0%, rgba(20,20,20,.25) 65%, rgba(0,0,0,.35) 100%); }
+}
