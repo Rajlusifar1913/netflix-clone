@@ -72,7 +72,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       });
 
       // Small delay so the success message is visible before navigating
-      setTimeout(() => navigate("/profiles"), 700);
+      setTimeout(() => navigate("/browse"), 700);
     } catch (error) {
       setMessage({
         type: "error",
@@ -94,7 +94,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       });
     }
     setProviderLoading(provider);
-    await signIn(provider, { callbackUrl: "/profiles" });
+    await signIn(provider, { callbackUrl: "/browse" });
     setProviderLoading(null);
   }
 

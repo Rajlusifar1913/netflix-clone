@@ -45,7 +45,7 @@ function RouteGuard({ children }: { children: ReactNode }) {
     if (status === "unauthenticated" && isProtected) {
       navigate("/login", { replace: true });
     } else if (status === "authenticated" && isAuthPage) {
-      navigate("/profiles", { replace: true });
+      navigate("/browse", { replace: true });
     }
   }, [status, pathname, navigate]);
 
