@@ -13,6 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { apiRequest, setStoredToken, getStoredToken } from "./api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -101,7 +102,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     status: "loading",
   });
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
+    // Try backend check first if token exists
+    const token = getStoredToken();
+    if (token) {
+      try {
+        const res = await apiRequest<{ data: { user: { id: string; name: string; email: string; avatar?: string } } }>('/auth/me');
+        const session: Session = {
+          user: {
+            id: res.data.user.id,
+            name: res.data.user.name,
+            email: res.data.user.email,
+            image: res.data.user.avatar,
+          },
+        };
+        saveSession(session);
+        setState({ data: session, status: "authenticated" });
+        return;
+      } catch {
+        // Token invalid or server offline - proceed to check session/local storage
+      }
+    }
+
     const session = getSession();
     setState({
       data: session,
@@ -135,7 +157,7 @@ export type SignInResult =
 
 /**
  * signIn("credentials", { email, password })
- * Checks stored users and writes a session on success.
+ * Attempts backend authentication first, falls back to localStorage.
  */
 export async function signIn(
   provider: string,
@@ -146,7 +168,6 @@ export async function signIn(
     callbackUrl?: string;
   }
 ): Promise<SignInResult> {
-  // OAuth providers show a friendly message (not implemented in frontend-only mode)
   if (provider !== "credentials") {
     return {
       ok: false,
@@ -155,6 +176,37 @@ export async function signIn(
   }
 
   const { email = "", password = "" } = options ?? {};
+
+  // 1. Try Backend Authentication
+  try {
+    const res = await apiRequest<{
+      token: string;
+      data: { user: { id: string; name: string; email: string; avatar?: string } };
+    }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+
+    setStoredToken(res.token);
+    const session: Session = {
+      user: {
+        id: res.data.user.id,
+        name: res.data.user.name,
+        email: res.data.user.email,
+        image: res.data.user.avatar,
+      },
+    };
+    saveSession(session);
+    window.dispatchEvent(new Event("streamly:session-change"));
+    return { ok: true, error: null };
+  } catch (backendError) {
+    // If explicit invalid credentials error from backend, return error
+    if (backendError instanceof Error && backendError.message.includes('Invalid email or password')) {
+      return { ok: false, error: backendError.message };
+    }
+  }
+
+  // 2. Local Fallback Auth
   const users = getUsers();
   const user = users.find((u) => u.email === email.toLowerCase().trim());
 
@@ -166,22 +218,48 @@ export async function signIn(
     user: { id: user.id, name: user.name, email: user.email, image: user.image },
   };
   saveSession(session);
-
-  // Dispatch a storage event so other tabs / useSession hook can react
   window.dispatchEvent(new Event("streamly:session-change"));
 
   return { ok: true, error: null };
 }
 
 /**
- * registerUser — creates a new account in localStorage.
- * Returns an error string or null on success.
+ * registerUser — creates a new account via Backend or localStorage.
  */
 export async function registerUser(
   name: string,
   email: string,
   password: string
 ): Promise<string | null> {
+  // 1. Try Backend Registration
+  try {
+    const res = await apiRequest<{
+      token: string;
+      data: { user: { id: string; name: string; email: string; avatar?: string } };
+    }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    });
+
+    setStoredToken(res.token);
+    const session: Session = {
+      user: {
+        id: res.data.user.id,
+        name: res.data.user.name,
+        email: res.data.user.email,
+        image: res.data.user.avatar,
+      },
+    };
+    saveSession(session);
+    window.dispatchEvent(new Event("streamly:session-change"));
+    return null;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('already exists')) {
+      return err.message;
+    }
+  }
+
+  // 2. Local Fallback Registration
   const users = getUsers();
   const normalEmail = email.toLowerCase().trim();
 
@@ -200,19 +278,21 @@ export async function registerUser(
 }
 
 /**
- * signOut — clears the current session.
+ * signOut — clears current session and tokens.
  */
 export async function signOut(options?: { callbackUrl?: string }) {
+  try {
+    await apiRequest('/auth/logout', { method: 'POST' });
+  } catch {
+    // Ignore server error on logout
+  }
+  setStoredToken(null);
   saveSession(null);
   window.dispatchEvent(new Event("streamly:session-change"));
-  // Navigate to callbackUrl or root
   window.location.href = options?.callbackUrl ?? "/";
 }
 
-/**
- * getProviders — always returns an empty map in frontend-only mode.
- * OAuth buttons will show a "configure keys" message.
- */
 export async function getProviders(): Promise<Record<string, unknown>> {
   return {};
 }
+
