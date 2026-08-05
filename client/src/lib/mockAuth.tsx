@@ -133,6 +133,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
+
+    const handleSessionChange = () => refresh();
+    window.addEventListener("streamly:session-change", handleSessionChange);
+    window.addEventListener("storage", handleSessionChange);
+
+    return () => {
+      window.removeEventListener("streamly:session-change", handleSessionChange);
+      window.removeEventListener("storage", handleSessionChange);
+    };
   }, [refresh]);
 
   const value = useMemo<SessionContextValue>(
