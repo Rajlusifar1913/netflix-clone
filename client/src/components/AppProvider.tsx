@@ -28,7 +28,7 @@ const AppContext = createContext<AppState | null>(null);
 
 // ─── Route Guards ─────────────────────────────────────────────────────────────
 
-const PROTECTED_PATHS = ["/browse", "/profiles"];
+const PROTECTED_PATHS = ["/browse", "/profiles", "/tv-shows", "/movies", "/latest", "/my-list", "/watch", "/account", "/search", "/help"];
 const AUTH_PATHS = ["/login", "/register"];
 
 function RouteGuard({ children }: { children: ReactNode }) {
