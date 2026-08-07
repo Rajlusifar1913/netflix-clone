@@ -20,6 +20,10 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   TMDB_API_KEY: z.string().optional().default(''),
   TMDB_ACCESS_TOKEN: z.string().optional().default(''),
+  STRIPE_SECRET_KEY: z.string().default('sk_test_mock_key_change_in_production'),
+  STRIPE_WEBHOOK_SECRET: z.string().default('whsec_mock_key_change_in_production'),
+  STRIPE_SUCCESS_URL: z.string().default('http://localhost:5173/account?payment=success'),
+  STRIPE_CANCEL_URL: z.string().default('http://localhost:5173/account?payment=cancelled'),
 });
 
 const parseEnv = () => {

@@ -210,6 +210,7 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
                   <span>Sign out of Streamly</span>
                 </button>
               </div>
+
             </div>
           )}
         </div>
