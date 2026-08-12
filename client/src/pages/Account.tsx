@@ -16,13 +16,7 @@ import { useApp } from "@/components/AppProvider";
 import { useSession, signOut } from "@/lib/mockAuth";
 import { apiRequest } from "@/lib/api";
 import { PlanModal, PLANS } from "@/components/PlanModal";
-import {
-  isValidLuhn,
-  detectCardBrand,
-  isValidExpiry,
-  formatCardNumber,
-  formatExpiryDate,
-} from "@/lib/cardValidation";
+import { StripePaymentModal, type SubscriptionData } from "@/components/StripePaymentModal";
 
 interface SubscriptionState {
   email: string;
@@ -64,13 +58,6 @@ export default function AccountPage() {
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  // Credit Card Form States
-  const [cardholderName, setCardholderName] = useState(session?.user?.name || "Demo User");
-  const [cardNumber, setCardNumber] = useState("");
-  const [expiryDate, setExpiryDate] = useState("");
-  const [cvc, setCvc] = useState("");
-  const [cardError, setCardError] = useState<string | null>(null);
 
   // Form States for Email/Password Modals
   const [newEmail, setNewEmail] = useState("");
@@ -116,60 +103,6 @@ export default function AccountPage() {
           },
         }));
       }
-    }
-  }
-
-  async function handlePaymentUpdate(e: React.FormEvent) {
-    e.preventDefault();
-    setCardError(null);
-
-    const cleanCard = cardNumber.replace(/\D/g, "");
-
-    // 1. Validate Cardholder Name
-    if (cardholderName.trim().length < 2) {
-      return setCardError("Please enter a valid cardholder name.");
-    }
-
-    // 2. Validate Luhn Checksum
-    if (!isValidLuhn(cleanCard)) {
-      return setCardError("Invalid credit card number. Please check the digits and try again.");
-    }
-
-    // 3. Validate Expiry Date
-    if (!isValidExpiry(expiryDate)) {
-      return setCardError("Expiry date is invalid or has passed (MM/YY format required).");
-    }
-
-    // 4. Validate CVC
-    if (!/^\d{3,4}$/.test(cvc)) {
-      return setCardError("Security code (CVC) must be 3 or 4 digits.");
-    }
-
-    setLoading(true);
-    try {
-      const res = await apiRequest<{ data: { subscription: SubscriptionState["subscription"] } }>(
-        "/payments/update-payment",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            cardNumber: cleanCard,
-            expiryDate,
-            cvc,
-            cardholderName,
-          }),
-        }
-      );
-      if (res.data?.subscription) {
-        setSubData((prev) => ({ ...prev, subscription: res.data.subscription }));
-      }
-      setShowPaymentModal(false);
-      setCardNumber("");
-      setExpiryDate("");
-      setCvc("");
-    } catch (err) {
-      setCardError(err instanceof Error ? err.message : "Failed to update payment method.");
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -309,7 +242,6 @@ export default function AccountPage() {
                 onClick={() => setShowPasswordModal(true)}
                 className="rounded border border-white/20 bg-[#262626] px-4 py-2 text-xs font-semibold text-white hover:bg-[#333]"
               >
->>>>>>> e5683ab (Add payment features, account page, and server updates)
                 Change Password
               </button>
             </div>
@@ -400,126 +332,14 @@ export default function AccountPage() {
         />
       )}
 
-      {/* ── MANAGE PAYMENT INFO MODAL ── */}
+      {/* ── MANAGE PAYMENT INFO MODAL (Stripe Elements — PCI-DSS compliant) ── */}
       {showPaymentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-md rounded-xl border border-white/10 bg-[#181818] p-6 shadow-2xl sm:p-8">
-            <button
-              onClick={() => {
-                setShowPaymentModal(false);
-                setCardError(null);
-              }}
-              className="absolute right-4 top-4 rounded-full p-2 text-[#aaa] hover:bg-white/10 hover:text-white"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-emerald-900/40 p-2.5 text-emerald-400">
-                <CreditCard className="size-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-white">Manage Payment Method</h3>
-                <p className="text-xs text-[#aaa]">Enter your card details securely.</p>
-              </div>
-            </div>
-
-            {cardError && (
-              <div className="mt-4 rounded-md border border-red-500/40 bg-red-950/60 p-3 text-xs text-red-200">
-                {cardError}
-              </div>
-            )}
-
-            <form onSubmit={handlePaymentUpdate} className="mt-5 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[#ccc]">Cardholder Name</label>
-                <input
-                  type="text"
-                  value={cardholderName}
-                  onChange={(e) => setCardholderName(e.target.value)}
-                  className="mt-1.5 w-full rounded border border-white/20 bg-black/60 px-4 py-2.5 text-sm text-white outline-none focus:border-white"
-                  placeholder="Full Name"
-                  required
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-[#ccc]">Card Number</label>
-                  {cardNumber && (
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                      {detectCardBrand(cardNumber)}
-                    </span>
-                  )}
-                </div>
-                <div className="relative mt-1.5">
-                  <input
-                    type="text"
-                    maxLength={19}
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
-                    className="w-full rounded border border-white/20 bg-black/60 px-4 py-2.5 text-sm text-white outline-none focus:border-white"
-                    placeholder="4532 0000 0000 4242"
-                    required
-                  />
-                  <CreditCard className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#777]" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-[#ccc]">Expiry Date</label>
-                  <input
-                    type="text"
-                    maxLength={5}
-                    value={expiryDate}
-                    onChange={(e) => setExpiryDate(formatExpiryDate(e.target.value))}
-                    className="mt-1.5 w-full rounded border border-white/20 bg-black/60 px-4 py-2.5 text-sm text-white outline-none focus:border-white"
-                    placeholder="MM/YY"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-[#ccc]">CVC / CVV</label>
-                  <input
-                    type="password"
-                    maxLength={4}
-                    value={cvc}
-                    onChange={(e) => setCvc(e.target.value.replace(/\D/g, ""))}
-                    className="mt-1.5 w-full rounded border border-white/20 bg-black/60 px-4 py-2.5 text-sm text-white outline-none focus:border-white"
-                    placeholder="123"
-                    required
-                  />
-                </div>
-              </div>
-
-              <p className="text-[11px] leading-relaxed text-[#777]">
-                🔒 Your card details are verified using standard banking algorithms (Luhn validation) and encrypted via SSL.
-              </p>
-
-              <div className="flex justify-end gap-3 border-t border-white/10 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPaymentModal(false);
-                    setCardError(null);
-                  }}
-                  className="rounded border border-white/20 px-4 py-2 text-xs font-semibold text-[#ccc] hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  disabled={loading}
-                  type="submit"
-                  className="rounded bg-[#e50914] px-5 py-2 text-xs font-semibold text-white hover:bg-[#c80710] disabled:opacity-50"
-                >
-                  {loading ? "Verifying..." : "Save Payment Info"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <StripePaymentModal
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={(sub: SubscriptionData) =>
+            setSubData((prev) => ({ ...prev, subscription: sub }))
+          }
+        />
       )}
 
       {/* ── CHANGE EMAIL MODAL ── */}

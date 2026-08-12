@@ -12,6 +12,7 @@ import authRoutes from './routes/authRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import mediaRoutes from './routes/mediaRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import { stripeWebhook } from './controllers/paymentController.js';
 
 export const createApp = (): express.Application => {
   const app = express();
@@ -36,7 +37,16 @@ export const createApp = (): express.Application => {
     app.use(morgan('combined'));
   }
 
-  // Request Body Parsers
+  // ── Stripe Webhook ───────────────────────────────────────────────────────
+  // MUST be registered BEFORE express.json() — Stripe signature verification
+  // requires the raw, unparsed request body.
+  app.post(
+    '/api/v1/payments/webhook',
+    express.raw({ type: 'application/json' }),
+    stripeWebhook
+  );
+
+  // Request Body Parsers (registered after webhook to preserve raw body)
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.use(cookieParser());

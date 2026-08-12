@@ -1,4 +1,4 @@
-import { Response, NextFunction } from 'express';
+import { Response, NextFunction, Request } from 'express';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import { User } from '../models/User.js';
@@ -6,29 +6,47 @@ import { env } from '../config/env.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import { AuthenticatedRequest } from '../middlewares/auth.js';
 
-// Initialize Stripe if valid key exists
-const stripe = env.STRIPE_SECRET_KEY.startsWith('sk_live') || env.STRIPE_SECRET_KEY.startsWith('sk_test_')
+// ─── Stripe Initialization ────────────────────────────────────────────────────
+// Only initialize Stripe with a real API key (not a placeholder)
+const isRealStripeKey = (key: string): boolean =>
+  (key.startsWith('sk_test_') || key.startsWith('sk_live_')) &&
+  !key.includes('mock') &&
+  !key.includes('change_in_production') &&
+  key.length > 30;
+
+export const stripe = isRealStripeKey(env.STRIPE_SECRET_KEY)
   ? new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: '2025-01-27.acacia' as Stripe.LatestApiVersion })
   : null;
 
-export const PLAN_SPECS: Record<string, { name: string; specs: string; price: string }> = {
+if (!stripe) {
+  console.warn(
+    '⚠️  Stripe is not configured. Set a real STRIPE_SECRET_KEY in server/.env to enable live payments.'
+  );
+}
+
+// ─── Plan Configuration ───────────────────────────────────────────────────────
+export const PLAN_SPECS: Record<string, { name: string; specs: string; price: string; priceAmount: number }> = {
   mobile: {
     name: 'MOBILE',
     specs: 'Good 480p SD (1 Screen at once)',
     price: '$3.99 / mo',
+    priceAmount: 399,
   },
   standard: {
     name: 'STANDARD',
     specs: 'Full HD 1080p (2 Screens at once)',
     price: '$9.99 / mo',
+    priceAmount: 999,
   },
   premium: {
     name: 'PREMIUM',
     specs: 'Ultra HD 4K + HDR (4 Screens at once)',
     price: '$15.99 / mo',
+    priceAmount: 1599,
   },
 };
 
+// ─── Zod Validation Schemas ───────────────────────────────────────────────────
 export const changePlanSchema = z.object({
   body: z.object({
     planId: z.enum(['mobile', 'standard', 'premium']),
@@ -43,63 +61,18 @@ export const updateCredentialsSchema = z.object({
   }),
 });
 
-function isValidLuhn(cardNumber: string): boolean {
-  const digits = cardNumber.replace(/\D/g, '');
-  if (digits.length < 13 || digits.length > 19) return false;
-
-  let sum = 0;
-  let isSecond = false;
-  for (let i = digits.length - 1; i >= 0; i--) {
-    let d = parseInt(digits.charAt(i), 10);
-    if (isSecond) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-    isSecond = !isSecond;
-  }
-  return sum % 10 === 0;
-}
-
-function detectCardBrand(cardNumber: string): string {
-  const clean = cardNumber.replace(/\D/g, '');
-  if (/^4/.test(clean)) return 'visa';
-  if (/^(5[1-5]|2[2-7])/.test(clean)) return 'mastercard';
-  if (/^3[47]/.test(clean)) return 'amex';
-  if (/^(6011|65|64[4-9])/.test(clean)) return 'discover';
-  return 'visa';
-}
-
-function isValidExpiry(expiry: string): boolean {
-  if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry)) return false;
-  const [monthStr, yearStr] = expiry.split('/');
-  const month = parseInt(monthStr, 10);
-  const year = 2000 + parseInt(yearStr, 10);
-
-  const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
-
-  if (year < currentYear) return false;
-  if (year === currentYear && month < currentMonth) return false;
-  return true;
-}
-
+// Accepts Stripe paymentMethodId - never raw card data
 export const updatePaymentMethodSchema = z.object({
   body: z.object({
-    cardNumber: z.string().min(13, 'Card number is too short').max(23, 'Card number is too long'),
-    expiryDate: z.string().regex(/^(0[1-9]|1[0-2])\/\d{2}$/, 'Expiry date must be MM/YY format'),
-    cvc: z.string().min(3).max(4),
-    cardholderName: z.string().min(2, 'Cardholder name is required').optional(),
+    paymentMethodId: z.string().min(1, 'Stripe payment method ID is required'),
   }),
 });
 
+// ─── GET /payments/subscription ───────────────────────────────────────────────
 export const getSubscription = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = await User.findById(req.user!.id);
-    if (!user) {
-      return next(new AppError('User not found', 404));
-    }
+    if (!user) return next(new AppError('User not found', 404));
 
     res.status(200).json({
       status: 'success',
@@ -123,27 +96,36 @@ export const getSubscription = async (req: AuthenticatedRequest, res: Response, 
   }
 };
 
+// ─── POST /payments/change-plan ───────────────────────────────────────────────
 export const changePlan = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { planId } = req.body as { planId: 'mobile' | 'standard' | 'premium' };
     const user = await User.findById(req.user!.id);
-    if (!user) {
-      return next(new AppError('User not found', 404));
-    }
+    if (!user) return next(new AppError('User not found', 404));
 
     const planConfig = PLAN_SPECS[planId];
-    if (!planConfig) {
-      return next(new AppError('Invalid plan selected.', 400));
+    if (!planConfig) return next(new AppError('Invalid plan selected.', 400));
+
+    // If Stripe is active and user has an existing subscription, update it via Stripe
+    if (stripe && user.subscription?.stripeSubscriptionId) {
+      try {
+        await stripe.subscriptions.update(user.subscription.stripeSubscriptionId, {
+          metadata: { planId, planName: planConfig.name },
+        });
+      } catch (stripeErr) {
+        console.error('⚠️  Stripe subscription update error:', stripeErr);
+        // Fall through to local DB update — Stripe webhook will sync eventually
+      }
     }
 
     user.subscription = {
-      ...(user.subscription || {}),
+      ...user.subscription,
       status: 'active',
       planId,
       planName: planConfig.name,
       planSpecs: planConfig.specs,
-      cardLast4: user.subscription?.cardLast4 || '4242',
-      cardBrand: user.subscription?.cardBrand || 'visa',
+      cardLast4: user.subscription?.cardLast4 || '****',
+      cardBrand: user.subscription?.cardBrand || 'card',
       currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       cancelAtPeriodEnd: false,
     };
@@ -160,43 +142,57 @@ export const changePlan = async (req: AuthenticatedRequest, res: Response, next:
   }
 };
 
+// ─── POST /payments/update-payment ───────────────────────────────────────────
+// Accepts a Stripe paymentMethodId (created by Stripe.js on the frontend).
+// Raw card data NEVER touches this server — this is PCI-DSS compliant.
 export const updatePaymentMethod = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { cardNumber, expiryDate, cvc } = req.body;
+    const { paymentMethodId } = req.body as { paymentMethodId: string };
 
-    const cleanCard = String(cardNumber).replace(/\D/g, '');
-
-    // 1. Validate Luhn algorithm
-    if (!isValidLuhn(cleanCard)) {
-      return next(new AppError('Invalid credit card number. Please check the card details and try again.', 400));
-    }
-
-    // 2. Validate Expiry Date
-    if (!isValidExpiry(expiryDate)) {
-      return next(new AppError('Card has expired or expiry date is invalid (MM/YY).', 400));
-    }
-
-    // 3. Validate CVC
-    if (!/^\d{3,4}$/.test(cvc)) {
-      return next(new AppError('Security code (CVC/CVV) must be 3 or 4 digits.', 400));
+    if (!stripe) {
+      return next(new AppError('Payment processing is not configured on this server.', 503));
     }
 
     const user = await User.findById(req.user!.id);
-    if (!user) {
-      return next(new AppError('User not found', 404));
+    if (!user) return next(new AppError('User not found', 404));
+
+    // Retrieve payment method from Stripe to get card metadata (last4, brand)
+    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    if (!pm.card) {
+      return next(new AppError('Invalid payment method. Only card payments are supported.', 400));
     }
 
-    const cardLast4 = cleanCard.slice(-4);
-    const cardBrand = detectCardBrand(cleanCard);
+    const cardLast4 = pm.card.last4;
+    const cardBrand = pm.card.brand;
+    let stripeCustomerId = user.subscription?.stripeCustomerId;
+
+    // Create Stripe customer if the user doesn't have one yet
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create(
+        { email: user.email, name: user.name, metadata: { userId: String(user.id) } },
+        { idempotencyKey: `create-customer-${user.id}` }
+      );
+      stripeCustomerId = customer.id;
+    }
+
+    // Attach the new payment method to the Stripe customer
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: stripeCustomerId });
+
+    // Set as default payment method for future invoices
+    await stripe.customers.update(stripeCustomerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
 
     user.subscription = {
-      ...(user.subscription || {}),
+      ...user.subscription,
       status: 'active',
       planId: user.subscription?.planId || 'premium',
       planName: user.subscription?.planName || 'PREMIUM',
       planSpecs: user.subscription?.planSpecs || PLAN_SPECS.premium.specs,
       cardLast4,
       cardBrand,
+      stripeCustomerId,
+      stripeSubscriptionId: user.subscription?.stripeSubscriptionId,
       currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       cancelAtPeriodEnd: false,
     };
@@ -205,7 +201,7 @@ export const updatePaymentMethod = async (req: AuthenticatedRequest, res: Respon
 
     res.status(200).json({
       status: 'success',
-      message: 'Payment method verified and updated successfully.',
+      message: 'Payment method updated successfully.',
       data: { subscription: user.subscription },
     });
   } catch (error) {
@@ -213,20 +209,66 @@ export const updatePaymentMethod = async (req: AuthenticatedRequest, res: Respon
   }
 };
 
+// ─── POST /payments/create-setup-intent ──────────────────────────────────────
+// Creates a Stripe SetupIntent so Stripe.js on the frontend can securely
+// collect and tokenize card details without raw data hitting our server.
+export const createSetupIntent = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!stripe) {
+      return next(new AppError('Payment processing is not configured on this server.', 503));
+    }
+
+    const user = await User.findById(req.user!.id);
+    if (!user) return next(new AppError('User not found', 404));
+
+    let stripeCustomerId = user.subscription?.stripeCustomerId;
+
+    // Lazily create a Stripe customer on first payment interaction
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create(
+        { email: user.email, name: user.name, metadata: { userId: String(user.id) } },
+        { idempotencyKey: `create-customer-${user.id}` }
+      );
+      stripeCustomerId = customer.id;
+      user.subscription = { ...user.subscription, stripeCustomerId };
+      await user.save();
+    }
+
+    const setupIntent = await stripe.setupIntents.create({
+      customer: stripeCustomerId,
+      payment_method_types: ['card'],
+      usage: 'off_session',
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: { clientSecret: setupIntent.client_secret },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── POST /payments/update-credentials ───────────────────────────────────────
 export const updateCredentials = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { email, currentPassword, newPassword } = req.body;
     const user = await User.findById(req.user!.id).select('+password');
-
-    if (!user) {
-      return next(new AppError('User not found', 404));
-    }
+    if (!user) return next(new AppError('User not found', 404));
 
     if (email && email.toLowerCase().trim() !== user.email) {
       const existing = await User.findOne({ email: email.toLowerCase().trim() });
-      if (existing) {
-        return next(new AppError('This email is already in use by another account.', 400));
+      if (existing) return next(new AppError('This email is already in use by another account.', 400));
+
+      // Sync email change to Stripe customer
+      if (stripe && user.subscription?.stripeCustomerId) {
+        try {
+          await stripe.customers.update(user.subscription.stripeCustomerId, { email: email.toLowerCase().trim() });
+        } catch (stripeErr) {
+          console.error('⚠️  Stripe customer email update error:', stripeErr);
+        }
       }
+
       user.email = email.toLowerCase().trim();
     }
 
@@ -242,26 +284,30 @@ export const updateCredentials = async (req: AuthenticatedRequest, res: Response
     res.status(200).json({
       status: 'success',
       message: 'Account details updated successfully.',
-      data: {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-        },
-      },
+      data: { user: { id: user.id, name: user.name, email: user.email } },
     });
   } catch (error) {
     next(error);
   }
 };
 
+// ─── POST /payments/checkout-session ─────────────────────────────────────────
 export const createCheckoutSession = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { planId } = req.body as { planId: 'mobile' | 'standard' | 'premium' };
-    const user = req.user!;
 
-    if (stripe) {
-      const session = await stripe.checkout.sessions.create({
+    if (!stripe) {
+      return next(new AppError('Payment processing is not configured on this server.', 503));
+    }
+
+    const user = req.user!;
+    const planConfig = PLAN_SPECS[planId] || PLAN_SPECS.premium;
+
+    // Idempotency key scoped to user + plan + current hour to prevent duplicate sessions
+    const idempotencyKey = `checkout-${user.id}-${planId}-${Math.floor(Date.now() / 3_600_000)}`;
+
+    const session = await stripe.checkout.sessions.create(
+      {
         payment_method_types: ['card'],
         customer_email: user.email,
         line_items: [
@@ -269,10 +315,10 @@ export const createCheckoutSession = async (req: AuthenticatedRequest, res: Resp
             price_data: {
               currency: 'usd',
               product_data: {
-                name: `Streamly ${PLAN_SPECS[planId]?.name || 'Membership'} Plan`,
-                description: PLAN_SPECS[planId]?.specs,
+                name: `Streamly ${planConfig.name} Plan`,
+                description: planConfig.specs,
               },
-              unit_amount: planId === 'mobile' ? 399 : planId === 'standard' ? 999 : 1599,
+              unit_amount: planConfig.priceAmount,
               recurring: { interval: 'month' },
             },
             quantity: 1,
@@ -281,16 +327,152 @@ export const createCheckoutSession = async (req: AuthenticatedRequest, res: Resp
         mode: 'subscription',
         success_url: env.STRIPE_SUCCESS_URL,
         cancel_url: env.STRIPE_CANCEL_URL,
-        client_reference_id: user.id,
-      });
+        client_reference_id: String(user.id),
+        metadata: { planId, userId: String(user.id) },
+      },
+      { idempotencyKey }
+    );
 
-      res.status(200).json({ status: 'success', data: { sessionUrl: session.url } });
-      return;
-    }
-
-    // Direct mock update fallback
-    return changePlan(req, res, next);
+    res.status(200).json({ status: 'success', data: { sessionUrl: session.url } });
   } catch (error) {
     next(error);
+  }
+};
+
+// ─── POST /api/v1/payments/webhook ────────────────────────────────────────────
+// MUST be registered with express.raw({ type: 'application/json' }) in app.ts
+// BEFORE the express.json() middleware to preserve the raw request body
+// required for Stripe signature verification.
+export const stripeWebhook = async (req: Request, res: Response): Promise<void> => {
+  const sig = req.headers['stripe-signature'];
+
+  if (!stripe || !sig) {
+    console.error('❌ Webhook called but Stripe is not configured or signature missing.');
+    res.status(400).json({ error: 'Webhook not configured.' });
+    return;
+  }
+
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body as Buffer, sig, env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('⚠️  Stripe webhook signature verification failed:', (err as Error).message);
+    res.status(400).json({ error: 'Webhook signature verification failed.' });
+    return;
+  }
+
+  console.log(`📨 Stripe event received: ${event.type}`);
+
+  try {
+    switch (event.type) {
+      // ── Checkout completed → activate subscription ────────────────────────
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const userId = session.metadata?.userId || session.client_reference_id;
+        const planId = (session.metadata?.planId || 'premium') as 'mobile' | 'standard' | 'premium';
+
+        if (userId) {
+          const user = await User.findById(userId);
+          if (user) {
+            const planConfig = PLAN_SPECS[planId] || PLAN_SPECS.premium;
+            user.subscription = {
+              ...user.subscription,
+              status: 'active',
+              planId,
+              planName: planConfig.name,
+              planSpecs: planConfig.specs,
+              stripeCustomerId: session.customer as string,
+              stripeSubscriptionId: session.subscription as string,
+              cardLast4: user.subscription?.cardLast4 || '****',
+              cardBrand: user.subscription?.cardBrand || 'card',
+              currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              cancelAtPeriodEnd: false,
+            };
+            await user.save();
+            console.log(`✅ Subscription activated for user ${userId}`);
+          }
+        }
+        break;
+      }
+
+      // ── Subscription updated (plan change, renewal, etc.) ─────────────────
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const user = await User.findOne({ 'subscription.stripeCustomerId': subscription.customer as string });
+
+        if (user) {
+          const validStatuses = ['none', 'active', 'canceled', 'past_due', 'unpaid'];
+          const mappedStatus = validStatuses.includes(subscription.status)
+            ? (subscription.status as 'none' | 'active' | 'canceled' | 'past_due' | 'unpaid')
+            : 'active';
+
+          user.subscription = {
+            ...user.subscription,
+            status: mappedStatus,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end,
+            currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+            stripeCustomerId: subscription.customer as string,
+            stripeSubscriptionId: subscription.id,
+            cardLast4: user.subscription?.cardLast4 || '****',
+            cardBrand: user.subscription?.cardBrand || 'card',
+            planId: user.subscription?.planId || 'premium',
+            planName: user.subscription?.planName || 'PREMIUM',
+            planSpecs: user.subscription?.planSpecs || PLAN_SPECS.premium.specs,
+          };
+          await user.save();
+          console.log(`✅ Subscription updated for customer ${subscription.customer}`);
+        }
+        break;
+      }
+
+      // ── Subscription canceled ─────────────────────────────────────────────
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const user = await User.findOne({ 'subscription.stripeCustomerId': subscription.customer as string });
+
+        if (user) {
+          user.subscription.status = 'canceled';
+          user.subscription.cancelAtPeriodEnd = false;
+          await user.save();
+          console.log(`⚠️  Subscription canceled for customer ${subscription.customer}`);
+        }
+        break;
+      }
+
+      // ── Invoice paid → reactivate if past_due ────────────────────────────
+      case 'invoice.paid': {
+        const invoice = event.data.object as Stripe.Invoice;
+        const user = await User.findOne({ 'subscription.stripeCustomerId': invoice.customer as string });
+
+        if (user && user.subscription.status !== 'active') {
+          user.subscription.status = 'active';
+          await user.save();
+          console.log(`✅ Invoice paid, subscription reactivated for customer ${invoice.customer}`);
+        }
+        break;
+      }
+
+      // ── Invoice payment failed → mark past_due ───────────────────────────
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        const user = await User.findOne({ 'subscription.stripeCustomerId': invoice.customer as string });
+
+        if (user) {
+          user.subscription.status = 'past_due';
+          await user.save();
+          console.log(`❌ Payment failed for customer ${invoice.customer}`);
+        }
+        break;
+      }
+
+      default:
+        // Unknown/unhandled event — acknowledge receipt to avoid Stripe retries
+        console.log(`ℹ️  Unhandled Stripe event type: ${event.type}`);
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('❌ Webhook processing error:', error);
+    res.status(500).json({ error: 'Webhook processing failed.' });
   }
 };

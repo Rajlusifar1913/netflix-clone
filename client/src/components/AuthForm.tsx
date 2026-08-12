@@ -17,8 +17,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
-  const [providerLoading, setProviderLoading] = useState<string | null>(null);
-  const [availableProviders, setAvailableProviders] = useState<string[]>([]);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<{
     type: "error" | "success";
@@ -27,7 +27,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
 
   useEffect(() => {
-    getProviders().then((data) => setAvailableProviders(Object.keys(data)));
+    getProviders().then((data) => setGoogleAvailable("google" in data));
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -84,18 +84,25 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     }
   }
 
-  async function oauth(provider: "google" | "github") {
-    if (!availableProviders.includes(provider)) {
-      return setMessage({
+  async function handleGoogleSignIn() {
+    if (googleLoading) return;
+    setMessage(null);
+    setGoogleLoading(true);
+    try {
+      const result = await signIn("google", { callbackUrl: "/browse" });
+      if (!result.ok) {
+        // callbackUrl navigates away on success — only reach here on failure
+        setMessage({ type: "error", text: result.error ?? "Google Sign-In failed." });
+      }
+      // On success, signIn() does window.location.href = '/browse' — no need to navigate here
+    } catch (err) {
+      setMessage({
         type: "error",
-        text: `${
-          provider === "google" ? "Google" : "GitHub"
-        } login is available after its OAuth keys are configured.`,
+        text: err instanceof Error ? err.message : "Google Sign-In failed.",
       });
+    } finally {
+      setGoogleLoading(false);
     }
-    setProviderLoading(provider);
-    await signIn(provider, { callbackUrl: "/browse" });
-    setProviderLoading(null);
   }
 
   return (
@@ -214,32 +221,32 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         <span className="h-px flex-1 bg-white/15" />
       </div>
 
-      <div className="space-y-3">
+      {/* Google Sign-In Button */}
+      {googleAvailable ? (
         <button
-          onClick={() => oauth("google")}
-          disabled={Boolean(providerLoading)}
-          className="flex w-full items-center justify-center gap-3 rounded border border-white/25 bg-white px-4 py-3 text-sm font-semibold text-[#171717] hover:bg-[#e8e8e8]"
+          id="google-signin-btn"
+          onClick={handleGoogleSignIn}
+          disabled={googleLoading}
+          className="flex w-full items-center justify-center gap-3 rounded border border-white/25 bg-white px-4 py-3 text-sm font-semibold text-[#171717] hover:bg-[#e8e8e8] disabled:opacity-60"
         >
-          <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z"/>
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.24 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.15v2.84A11 11 0 0 0 12 23Z"/>
-            <path fill="#FBBC05" d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.43.34-2.09V7.07H2.15A11 11 0 0 0 1 12c0 1.77.42 3.44 1.15 4.93l3.69-2.84Z"/>
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.55 4.21 1.64l3.15-3.15A10.55 10.55 0 0 0 12 1 11 11 0 0 0 2.15 7.07l3.69 2.84c.87-2.6 3.3-4.53 6.16-4.53Z"/>
-          </svg>
-          {providerLoading === "google" ? "Connecting…" : "Continue with Google"}
+          {googleLoading ? (
+            <LoaderCircle className="size-5 animate-spin text-[#555]" />
+          ) : (
+            <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.24 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.15v2.84A11 11 0 0 0 12 23Z"/>
+              <path fill="#FBBC05" d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.43.34-2.09V7.07H2.15A11 11 0 0 0 1 12c0 1.77.42 3.44 1.15 4.93l3.69-2.84Z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.55 4.21 1.64l3.15-3.15A10.55 10.55 0 0 0 12 1 11 11 0 0 0 2.15 7.07l3.69 2.84c.87-2.6 3.3-4.53 6.16-4.53Z"/>
+            </svg>
+          )}
+          {googleLoading ? "Connecting to Google…" : "Continue with Google"}
         </button>
-
-        <button
-          onClick={() => oauth("github")}
-          disabled={Boolean(providerLoading)}
-          className="flex w-full items-center justify-center gap-3 rounded border border-white/25 bg-[#24292f] px-4 py-3 text-sm font-semibold hover:bg-[#30363d]"
-        >
-          <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden="true">
-            <path d="M12 .7A11.5 11.5 0 0 0 8.36 23.1c.58.1.79-.25.79-.56v-2.23c-3.24.7-3.92-1.37-3.92-1.37-.53-1.34-1.3-1.7-1.3-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.77 2.72 1.26 3.38.96.1-.75.4-1.26.74-1.55-2.58-.3-5.3-1.29-5.3-5.7 0-1.27.46-2.3 1.2-3.1-.12-.3-.52-1.48.11-3.07 0 0 .98-.31 3.17 1.18a11.05 11.05 0 0 1 5.78 0c2.2-1.5 3.17-1.18 3.17-1.18.63 1.6.23 2.78.11 3.07.75.8 1.2 1.83 1.2 3.1 0 4.43-2.72 5.4-5.31 5.69.42.36.79 1.07.79 2.16v3.2c0 .32.21.67.8.56A11.5 11.5 0 0 0 12 .7Z" />
-          </svg>
-          {providerLoading === "github" ? "Connecting…" : "Continue with GitHub"}
-        </button>
-      </div>
+      ) : (
+        <div className="rounded border border-white/10 bg-white/5 px-4 py-3 text-center text-xs text-[#666]">
+          Google Sign-In unavailable —{" "}
+          <span className="font-mono text-[#888]">VITE_GOOGLE_CLIENT_ID</span> not configured
+        </div>
+      )}
 
       <p className="mt-7 text-sm text-[#aaa]">
         {mode === "login" ? "New to Streamly?" : "Already have an account?"}{" "}

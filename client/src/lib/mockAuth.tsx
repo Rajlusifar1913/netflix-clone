@@ -1,8 +1,9 @@
 /**
  * mockAuth.tsx
- * A drop-in, production-quality client-side authentication shim.
- * Stores users and sessions in localStorage so auth state persists
- * across page reloads exactly like a real backend would.
+ * Production-quality client-side authentication shim.
+ * - Stores sessions in sessionStorage / localStorage with backend priority
+ * - Wires real Google OAuth via GIS SDK → backend /auth/google
+ * - Provides signOut, getProviders, useSession hook
  */
 import {
   createContext,
@@ -21,7 +22,7 @@ interface StoredUser {
   id: string;
   name: string;
   email: string;
-  passwordHash: string; // simple base64 encoding (demo purposes only)
+  passwordHash: string; // simple base64 encoding (local fallback only)
   image?: string;
 }
 
@@ -77,7 +78,7 @@ function saveSession(session: Session | null) {
   }
 }
 
-// Simple reversible obfuscation — swap with bcrypt on a real server
+// Simple reversible obfuscation — local fallback only; real server uses bcrypt
 function encode(plain: string): string {
   return btoa(plain);
 }
@@ -86,6 +87,90 @@ function verify(plain: string, hash: string): boolean {
 }
 function uuid(): string {
   return crypto.randomUUID();
+}
+
+// ─── Google GIS helpers ───────────────────────────────────────────────────────
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+/** Returns true when a real Google Client ID is configured */
+function isGoogleConfigured(): boolean {
+  return (
+    !!GOOGLE_CLIENT_ID &&
+    !GOOGLE_CLIENT_ID.startsWith("your_google_client_id") &&
+    GOOGLE_CLIENT_ID.includes(".apps.googleusercontent.com")
+  );
+}
+
+/**
+ * Opens the Google Sign-In popup and returns the credential (idToken).
+ * Uses the GIS `google.accounts.id` API loaded by the script in index.html.
+ */
+function openGooglePopup(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // Type declarations for the GIS SDK on window
+    const gAccounts = (window as unknown as {
+      google?: {
+        accounts: {
+          id: {
+            initialize: (cfg: object) => void;
+            prompt: (cb?: (notification: { isNotDisplayed(): boolean; isSkippedMoment(): boolean }) => void) => void;
+            renderButton: (el: HTMLElement, opts: object) => void;
+            cancel: () => void;
+          };
+          oauth2: {
+            initTokenClient: (cfg: object) => { requestAccessToken: () => void };
+          };
+        };
+      };
+    }).google;
+
+    if (!gAccounts) {
+      reject(new Error("Google Identity Services script not yet loaded. Please try again in a moment."));
+      return;
+    }
+
+    // Create a hidden container for the GIS button (GIS needs it to power the popup)
+    const container = document.createElement("div");
+    container.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none";
+    document.body.appendChild(container);
+
+    let resolved = false;
+
+    gAccounts.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: (response: { credential?: string; error?: string }) => {
+        document.body.removeChild(container);
+        if (response.credential) {
+          resolved = true;
+          resolve(response.credential);
+        } else {
+          reject(new Error(response.error ?? "Google Sign-In was cancelled or failed."));
+        }
+      },
+      ux_mode: "popup",
+      cancel_on_tap_outside: false,
+    });
+
+    // Render a hidden button then programmatically click it to trigger the popup
+    gAccounts.accounts.id.renderButton(container, {
+      type: "standard",
+      size: "large",
+    });
+
+    const btn = container.querySelector("div[role=button]") as HTMLElement | null;
+    if (btn) {
+      btn.click();
+    } else {
+      // Fallback to prompt (shows One Tap or FedCM dialog)
+      gAccounts.accounts.id.prompt((notification) => {
+        if (!resolved && (notification.isNotDisplayed() || notification.isSkippedMoment())) {
+          document.body.removeChild(container);
+          reject(new Error("Google Sign-In prompt was blocked or dismissed. Please allow popups and try again."));
+        }
+      });
+    }
+  });
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -107,7 +192,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const token = getStoredToken();
     if (token) {
       try {
-        const res = await apiRequest<{ data: { user: { id: string; name: string; email: string; avatar?: string } } }>('/auth/me');
+        const res = await apiRequest<{
+          data: { user: { id: string; name: string; email: string; avatar?: string } };
+        }>("/auth/me");
         const session: Session = {
           user: {
             id: res.data.user.id,
@@ -120,7 +207,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setState({ data: session, status: "authenticated" });
         return;
       } catch {
-        // Token invalid or server offline - proceed to check session/local storage
+        // Token invalid or server offline — fall through to session/local storage
       }
     }
 
@@ -165,8 +252,8 @@ export type SignInResult =
   | { ok: false; error: string };
 
 /**
- * signIn("credentials", { email, password })
- * Attempts backend authentication first, falls back to localStorage.
+ * signIn("credentials", { email, password }) — email/password auth
+ * signIn("google") — Google OAuth via GIS SDK → backend /auth/google
  */
 export async function signIn(
   provider: string,
@@ -177,10 +264,59 @@ export async function signIn(
     callbackUrl?: string;
   }
 ): Promise<SignInResult> {
+  // ── Google OAuth ──────────────────────────────────────────────────────────
+  if (provider === "google") {
+    if (!isGoogleConfigured()) {
+      return {
+        ok: false,
+        error: "Google Sign-In is not configured. Add VITE_GOOGLE_CLIENT_ID to client/.env",
+      };
+    }
+
+    try {
+      // Get id_token from Google's popup
+      const idToken = await openGooglePopup();
+
+      // Send to backend for verification and session creation
+      const res = await apiRequest<{
+        token: string;
+        data: { user: { id: string; name: string; email: string; avatar?: string } };
+      }>("/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ idToken }),
+      });
+
+      setStoredToken(res.token);
+      const session: Session = {
+        user: {
+          id: res.data.user.id,
+          name: res.data.user.name,
+          email: res.data.user.email,
+          image: res.data.user.avatar,
+        },
+      };
+      saveSession(session);
+      window.dispatchEvent(new Event("streamly:session-change"));
+
+      // Navigate to callbackUrl if provided
+      if (options?.callbackUrl) {
+        window.location.href = options.callbackUrl;
+      }
+
+      return { ok: true, error: null };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Google Sign-In failed.",
+      };
+    }
+  }
+
+  // ── Credentials (email + password) ───────────────────────────────────────
   if (provider !== "credentials") {
     return {
       ok: false,
-      error: `${provider === "google" ? "Google" : "GitHub"} login is available after its OAuth keys are configured.`,
+      error: `${provider} sign-in is not supported.`,
     };
   }
 
@@ -191,8 +327,8 @@ export async function signIn(
     const res = await apiRequest<{
       token: string;
       data: { user: { id: string; name: string; email: string; avatar?: string } };
-    }>('/auth/login', {
-      method: 'POST',
+    }>("/auth/login", {
+      method: "POST",
       body: JSON.stringify({ email, password }),
     });
 
@@ -209,8 +345,11 @@ export async function signIn(
     window.dispatchEvent(new Event("streamly:session-change"));
     return { ok: true, error: null };
   } catch (backendError) {
-    // If explicit invalid credentials error from backend, return error
-    if (backendError instanceof Error && backendError.message.includes('Invalid email or password')) {
+    // If explicit invalid credentials error from backend, return it
+    if (
+      backendError instanceof Error &&
+      backendError.message.includes("Invalid email or password")
+    ) {
       return { ok: false, error: backendError.message };
     }
   }
@@ -233,7 +372,7 @@ export async function signIn(
 }
 
 /**
- * registerUser — creates a new account via Backend or localStorage.
+ * registerUser — creates a new account via backend or localStorage fallback.
  */
 export async function registerUser(
   name: string,
@@ -245,8 +384,8 @@ export async function registerUser(
     const res = await apiRequest<{
       token: string;
       data: { user: { id: string; name: string; email: string; avatar?: string } };
-    }>('/auth/register', {
-      method: 'POST',
+    }>("/auth/register", {
+      method: "POST",
       body: JSON.stringify({ name, email, password }),
     });
 
@@ -263,7 +402,7 @@ export async function registerUser(
     window.dispatchEvent(new Event("streamly:session-change"));
     return null;
   } catch (err) {
-    if (err instanceof Error && err.message.includes('already exists')) {
+    if (err instanceof Error && err.message.includes("already exists")) {
       return err.message;
     }
   }
@@ -287,11 +426,11 @@ export async function registerUser(
 }
 
 /**
- * signOut — clears current session and tokens.
+ * signOut — clears current session, tokens, and cookies via backend.
  */
 export async function signOut(options?: { callbackUrl?: string }) {
   try {
-    await apiRequest('/auth/logout', { method: 'POST' });
+    await apiRequest("/auth/logout", { method: "POST" });
   } catch {
     // Ignore server error on logout
   }
@@ -301,7 +440,14 @@ export async function signOut(options?: { callbackUrl?: string }) {
   window.location.href = options?.callbackUrl ?? "/";
 }
 
+/**
+ * getProviders — returns available OAuth providers based on configuration.
+ * Used by AuthForm to decide which buttons to enable.
+ */
 export async function getProviders(): Promise<Record<string, unknown>> {
-  return {};
+  const providers: Record<string, unknown> = {};
+  if (isGoogleConfigured()) {
+    providers.google = { name: "Google", type: "oauth" };
+  }
+  return providers;
 }
-

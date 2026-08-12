@@ -24,6 +24,8 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().default('whsec_mock_key_change_in_production'),
   STRIPE_SUCCESS_URL: z.string().default('http://localhost:5173/account?payment=success'),
   STRIPE_CANCEL_URL: z.string().default('http://localhost:5173/account?payment=cancelled'),
+  GOOGLE_CLIENT_ID: z.string().optional().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
 });
 
 const parseEnv = () => {
