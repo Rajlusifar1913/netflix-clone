@@ -18,12 +18,14 @@ const FALLBACK_POPULAR: MediaItem[] = [
 ];
 
 const NEW_POPULAR_CATEGORIES: [string, string][] = [
-  ["Trending This Week",    "/trending/all/week"],
-  ["Trending Today",        "/trending/all/day"],
+  ["Trending This Week", "/trending/all/week"],
+  ["Trending Today", "/trending/all/day"],
   ["Now Playing in Cinema", "/movie/now_playing"],
-  ["Top 10 Worldwide",      "/movie/top_rated"],
-  ["Upcoming Movies",       "/movie/upcoming"],
-  ["Popular Series",        "/tv/popular"],
+  ["Top 10 Worldwide", "/movie/top_rated"],
+  ["Upcoming Movies", "/movie/upcoming"],
+  ["Popular Series", "/tv/popular"],
+  ["Currently Airing Shows", "/tv/on_the_air"],
+  ["New Episodes Today", "/tv/airing_today"],
 ];
 
 function buildFallbackPopularData(): BrowseData {

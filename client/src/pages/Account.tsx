@@ -15,7 +15,8 @@ import { Logo } from "@/components/Logo";
 import { useApp } from "@/components/AppProvider";
 import { useSession, signOut } from "@/lib/mockAuth";
 import { apiRequest } from "@/lib/api";
-import { PlanModal, PLANS } from "@/components/PlanModal";
+import { PlanModal } from "@/components/PlanModal";
+import { getPlanById } from "@/lib/plansStore";
 import { StripePaymentModal, type SubscriptionData } from "@/components/StripePaymentModal";
 
 interface SubscriptionState {
@@ -77,7 +78,7 @@ export default function AccountPage() {
       });
   }, []);
 
-  async function handlePlanChange(planId: "mobile" | "standard" | "premium") {
+  async function handlePlanChange(planId: string) {
     try {
       const res = await apiRequest<{ data: { subscription: SubscriptionState["subscription"] } }>(
         "/payments/change-plan",
@@ -91,7 +92,7 @@ export default function AccountPage() {
       }
     } catch {
       // Local fallback update
-      const plan = PLANS.find((p) => p.id === planId);
+      const plan = getPlanById(planId);
       if (plan) {
         setSubData((prev) => ({
           ...prev,

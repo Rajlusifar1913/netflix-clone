@@ -31,6 +31,7 @@ export interface Session {
     id: string;
     name: string;
     email: string;
+    role?: "user" | "admin" | string;
     image?: string;
   };
 }
@@ -182,9 +183,10 @@ const SessionContext = createContext<SessionContextValue>({
 });
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const initialSession = getSession();
   const [state, setState] = useState<SessionState>({
-    data: null,
-    status: "loading",
+    data: initialSession,
+    status: initialSession ? "authenticated" : getStoredToken() ? "loading" : "unauthenticated",
   });
 
   const refresh = useCallback(async () => {
@@ -326,7 +328,7 @@ export async function signIn(
   try {
     const res = await apiRequest<{
       token: string;
-      data: { user: { id: string; name: string; email: string; avatar?: string } };
+      data: { user: { id: string; name: string; email: string; role?: string; avatar?: string } };
     }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
@@ -338,6 +340,7 @@ export async function signIn(
         id: res.data.user.id,
         name: res.data.user.name,
         email: res.data.user.email,
+        role: res.data.user.role || (res.data.user.email === "admin@streamly.com" ? "admin" : "user"),
         image: res.data.user.avatar,
       },
     };
@@ -363,7 +366,13 @@ export async function signIn(
   }
 
   const session: Session = {
-    user: { id: user.id, name: user.name, email: user.email, image: user.image },
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.email.toLowerCase() === "admin@streamly.com" || user.id === "usr_admin" ? "admin" : "user",
+      image: user.image,
+    },
   };
   saveSession(session);
   window.dispatchEvent(new Event("streamly:session-change"));

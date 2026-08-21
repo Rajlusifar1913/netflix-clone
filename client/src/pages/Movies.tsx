@@ -18,12 +18,14 @@ const FALLBACK_MOVIES: MediaItem[] = [
 ];
 
 const MOVIE_CATEGORIES: [string, string][] = [
-  ["Popular Movies",       "/movie/popular"],
-  ["Top Rated Movies",     "/movie/top_rated"],
-  ["Action Blockbusters",  "/discover/movie?with_genres=28"],
-  ["Comedic Hits",         "/discover/movie?with_genres=35"],
-  ["Horror Movies",        "/discover/movie?with_genres=27"],
-  ["Sci-Fi & Fantasy",     "/discover/movie?with_genres=878"],
+  ["Popular Movies", "/movie/popular"],
+  ["Top Rated Movies", "/movie/top_rated"],
+  ["Action Blockbusters", "/discover/movie?with_genres=28"],
+  ["Comedic Hits", "/discover/movie?with_genres=35"],
+  ["Horror & Mystery", "/discover/movie?with_genres=27,9648"],
+  ["Sci-Fi & Fantasy", "/discover/movie?with_genres=878"],
+  ["Crime & Drama Hits", "/discover/movie?with_genres=80,18"],
+  ["Animated Features", "/discover/movie?with_genres=16"],
 ];
 
 function buildFallbackMovieData(): BrowseData {

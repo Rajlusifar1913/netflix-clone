@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { signOut, useSession } from "@/lib/mockAuth";
-import { Bell, ChevronDown, HelpCircle, LogOut, Menu, Search, Settings, Users, X } from "lucide-react";
+import { isAdminAuthenticated, getAdminSession } from "@/lib/adminAuth";
+import { Bell, ChevronDown, HelpCircle, LogOut, Menu, Search, Settings, Users, X, Shield } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useApp } from "@/components/AppProvider";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,31 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
   const [searching, setSearching] = useState(false);
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const checkAdmin = () => {
+      const adminSession = getAdminSession();
+      const isAuth =
+        isAdminAuthenticated() ||
+        !!adminSession ||
+        session?.user?.role === "admin" ||
+        session?.user?.email?.toLowerCase() === "admin@streamly.com" ||
+        session?.user?.email?.toLowerCase() === "admin@streamly.app" ||
+        session?.user?.id === "usr_admin" ||
+        session?.user?.id === "admin";
+      setIsAdmin(isAuth);
+    };
+
+    checkAdmin();
+    window.addEventListener("streamly:admin-auth-change", checkAdmin);
+    window.addEventListener("streamly:session-change", checkAdmin);
+    return () => {
+      window.removeEventListener("streamly:admin-auth-change", checkAdmin);
+      window.removeEventListener("streamly:session-change", checkAdmin);
+    };
+  }, [session]);
 
   useEffect(() => {
     const listener = () => setScrolled(window.scrollY > 20);
@@ -64,6 +89,21 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
             </Link>
           );
         })}
+
+        {isAdmin && (
+          <Link
+            to="/admin"
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-bold transition-all duration-200 ml-1.5 border shadow-sm",
+              location.pathname.startsWith("/admin")
+                ? "bg-[#e50914] text-white border-[#e50914] shadow-md shadow-red-950/50"
+                : "bg-red-600/15 text-red-400 border-red-500/30 hover:bg-[#e50914] hover:text-white hover:border-[#e50914] hover:scale-[1.03]"
+            )}
+          >
+            <Shield className="size-3.5 shrink-0" />
+            <span>Admin Studio</span>
+          </Link>
+        )}
       </nav>
 
       <button
@@ -91,6 +131,22 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
               {link.label}
             </Link>
           ))}
+
+          {isAdmin && (
+            <Link
+              to="/admin"
+              onClick={() => setMobile(false)}
+              className={cn(
+                "flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-150 my-1 border border-red-500/30",
+                location.pathname.startsWith("/admin")
+                  ? "bg-[#e50914] text-white"
+                  : "bg-red-600/20 text-red-300 hover:bg-red-600/30 hover:text-white"
+              )}
+            >
+              <Shield className="size-4 text-red-400" />
+              <span>Admin Studio</span>
+            </Link>
+          )}
         </nav>
       )}
 
@@ -199,6 +255,17 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
                   <HelpCircle className="size-4 text-purple-400" />
                   <span>Help Center</span>
                 </Link>
+
+                {isAdmin && (
+                  <Link
+                    to="/admin"
+                    className="flex items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-medium transition-colors hover:bg-white/10 hover:text-white my-0.5 text-gray-300"
+                    onClick={() => setMenu(false)}
+                  >
+                    <Shield className="size-4 text-red-500" />
+                    <span>Admin Studio</span>
+                  </Link>
+                )}
               </div>
 
               <div className="border-t border-white/10 pt-1 mt-1">

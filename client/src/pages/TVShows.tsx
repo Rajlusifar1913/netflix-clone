@@ -18,12 +18,14 @@ const FALLBACK_TV: MediaItem[] = [
 ];
 
 const TV_CATEGORIES: [string, string][] = [
-  ["Popular TV Shows",     "/tv/popular"],
-  ["Top Rated Series",     "/tv/top_rated"],
-  ["Action & Adventure",   "/discover/tv?with_genres=10759"],
-  ["Comedy Series",        "/discover/tv?with_genres=35"],
-  ["Drama Shows",          "/discover/tv?with_genres=18"],
-  ["Sci-Fi & Fantasy",     "/discover/tv?with_genres=10765"],
+  ["Popular TV Shows", "/tv/popular"],
+  ["Top Rated Series", "/tv/top_rated"],
+  ["Action & Adventure", "/discover/tv?with_genres=10759"],
+  ["Comedy Series", "/discover/tv?with_genres=35"],
+  ["Drama Shows", "/discover/tv?with_genres=18"],
+  ["Sci-Fi & Fantasy", "/discover/tv?with_genres=10765"],
+  ["Crime & Mystery Series", "/discover/tv?with_genres=80,9648"],
+  ["Animated Series", "/discover/tv?with_genres=16"],
 ];
 
 function buildFallbackTVData(): BrowseData {

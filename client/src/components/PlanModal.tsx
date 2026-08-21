@@ -1,55 +1,28 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, X, Zap } from "lucide-react";
+import { getActivePlans, type SubscriptionPlanItem } from "@/lib/plansStore";
 
-export interface PlanOption {
-  id: "mobile" | "standard" | "premium";
-  name: string;
-  price: string;
-  quality: string;
-  resolution: string;
-  screens: string;
-  isPopular?: boolean;
-}
-
-export const PLANS: PlanOption[] = [
-  {
-    id: "mobile",
-    name: "Mobile",
-    price: "$3.99 / mo",
-    quality: "Fair",
-    resolution: "480p SD",
-    screens: "1 Screen at once",
-  },
-  {
-    id: "standard",
-    name: "Standard",
-    price: "$9.99 / mo",
-    quality: "Great",
-    resolution: "1080p Full HD",
-    screens: "2 Screens at once",
-  },
-  {
-    id: "premium",
-    name: "Premium",
-    price: "$15.99 / mo",
-    quality: "Best",
-    resolution: "4K + HDR Ultra HD",
-    screens: "4 Screens at once",
-    isPopular: true,
-  },
-];
+export type { SubscriptionPlanItem as PlanOption };
+export { DEFAULT_PLANS as PLANS } from "@/lib/plansStore";
 
 interface PlanModalProps {
   currentPlanId: string;
   onClose: () => void;
-  onSelectPlan: (planId: "mobile" | "standard" | "premium") => Promise<void>;
+  onSelectPlan: (planId: string) => Promise<void>;
 }
 
 export function PlanModal({ currentPlanId, onClose, onSelectPlan }: PlanModalProps) {
-  const [selected, setSelected] = useState<"mobile" | "standard" | "premium">(
-    (currentPlanId as "mobile" | "standard" | "premium") || "premium"
-  );
+  const [plans, setPlans] = useState<SubscriptionPlanItem[]>(getActivePlans());
+  const [selected, setSelected] = useState<string>(currentPlanId || "premium");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const handlePlansChange = () => {
+      setPlans(getActivePlans());
+    };
+    window.addEventListener("streamly:plans-change", handlePlansChange);
+    return () => window.removeEventListener("streamly:plans-change", handlePlansChange);
+  }, []);
 
   async function handleConfirm() {
     setLoading(true);
@@ -82,7 +55,7 @@ export function PlanModal({ currentPlanId, onClose, onSelectPlan }: PlanModalPro
         </div>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          {PLANS.map((plan) => {
+          {plans.map((plan) => {
             const isSelected = selected === plan.id;
             const isCurrent = currentPlanId.toLowerCase() === plan.id || currentPlanId.toLowerCase() === plan.name.toLowerCase();
 

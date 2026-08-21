@@ -26,12 +26,16 @@ const FALLBACK: MediaItem[] = [
 ];
 
 const CATEGORIES: [string, string][] = [
-  ["Trending Now",   "/trending/all/week"],
-  ["Top Rated",      "/movie/top_rated"],
-  ["Action Thrillers", "/discover/movie?with_genres=28,53"],
-  ["Comedic Hits",   "/discover/movie?with_genres=35"],
-  ["Horror Movies",  "/discover/movie?with_genres=27"],
-  ["Documentaries",  "/discover/movie?with_genres=99"],
+  ["Trending Now", "/trending/all/week"],
+  ["Top Rated Worldwide", "/movie/top_rated"],
+  ["Action & Adventure", "/discover/movie?with_genres=28,12"],
+  ["Sci-Fi & Cyberpunk Hits", "/discover/movie?with_genres=878"],
+  ["Comedic Hits", "/discover/movie?with_genres=35"],
+  ["Critically Acclaimed TV Series", "/tv/top_rated"],
+  ["Horror & Thrillers", "/discover/movie?with_genres=27,53"],
+  ["Animation & Anime Specials", "/discover/movie?with_genres=16"],
+  ["Documentaries & Real Stories", "/discover/movie?with_genres=99"],
+  ["Mystery & Suspense", "/discover/movie?with_genres=9648"],
 ];
 
 function buildFallbackData(): BrowseData {
@@ -59,6 +63,10 @@ async function fetchCategory(endpoint: string): Promise<MediaItem[]> {
   return (json.results ?? []).filter((item) => item.backdrop_path);
 }
 
+const CACHE_KEY = "streamly_browse_cache";
+const CACHE_TIME_KEY = "streamly_browse_cache_time";
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
 async function loadBrowseData(): Promise<BrowseData> {
   try {
     const results = await Promise.all(CATEGORIES.map(([, ep]) => fetchCategory(ep)));
@@ -68,7 +76,14 @@ async function loadBrowseData(): Promise<BrowseData> {
         ? results[i].slice(0, 18)
         : [...FALLBACK, ...FALLBACK].slice(i, i + 12),
     }));
-    return { featured: rows[0].items[0] ?? FALLBACK[0], rows };
+    const data: BrowseData = { featured: rows[0].items[0] ?? FALLBACK[0], rows };
+    try {
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      sessionStorage.setItem(CACHE_TIME_KEY, String(Date.now()));
+    } catch {
+      // Ignore cache write errors
+    }
+    return data;
   } catch {
     return buildFallbackData();
   }
@@ -77,7 +92,18 @@ async function loadBrowseData(): Promise<BrowseData> {
 // ─── Page component ───────────────────────────────────────────────────────────
 
 export default function BrowsePage() {
-  const [data, setData] = useState<BrowseData>(buildFallbackData);
+  const [data, setData] = useState<BrowseData>(() => {
+    try {
+      const cached = sessionStorage.getItem(CACHE_KEY);
+      const cachedTime = sessionStorage.getItem(CACHE_TIME_KEY);
+      if (cached && cachedTime && Date.now() - Number(cachedTime) < CACHE_TTL) {
+        return JSON.parse(cached) as BrowseData;
+      }
+    } catch {
+      // Ignore cache read errors
+    }
+    return buildFallbackData();
+  });
   const [query, setQuery] = useState("");
   const { myList } = useApp();
 
