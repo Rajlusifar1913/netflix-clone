@@ -86,13 +86,14 @@ export default function MyListPage() {
                       {Math.round((item.vote_average ?? 7) * 10)}% Match
                     </span>
                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => openMedia(item)}
+                      <Link
+                        to={`/watch?id=${item.id}&title=${encodeURIComponent(mediaTitle(item))}`}
+                        state={{ media: item }}
                         className="grid size-7 place-items-center rounded-full bg-white text-black hover:bg-white/80"
-                        title="Play / View Info"
+                        title="Play"
                       >
                         <Play className="size-3.5 fill-current ml-0.5" />
-                      </button>
+                      </Link>
                       <button
                         onClick={() => toggleList(item.id)}
                         className="grid size-7 place-items-center rounded-full border border-white/40 bg-black/60 text-white hover:border-white hover:bg-black/90"

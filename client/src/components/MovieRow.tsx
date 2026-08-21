@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Check, Play, Plus, ThumbsUp } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/components/AppProvider";
@@ -255,18 +256,16 @@ function MovieCard({
                 <div className="p-3.5 space-y-2.5">
                   {/* Action Buttons Row with Ultra-Smooth Spring Transitions */}
                   <div className="flex items-center gap-1.5">
-                    <motion.button
-                      whileHover={{ scale: 1.06, backgroundColor: "#f0f0f0" }}
-                      whileTap={{ scale: 0.94 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                      onClick={handleOpenMedia}
-                      className="flex items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-xs font-bold text-black shadow-md"
+                    <Link
+                      to={`/watch?id=${media.id}&title=${encodeURIComponent(mediaTitle(media))}`}
+                      state={{ media }}
+                      className="flex items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-xs font-bold text-black shadow-md hover:bg-white/80 transition-all active:scale-95"
                       aria-label="Play"
                       title="Play"
                     >
                       <Play className="size-3.5 fill-current" />
                       <span>Play</span>
-                    </motion.button>
+                    </Link>
 
                     <motion.button
                       whileHover={{ scale: 1.15, borderColor: "rgba(255,255,255,0.9)", backgroundColor: "rgba(255,255,255,0.15)" }}

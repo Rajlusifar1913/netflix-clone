@@ -35,7 +35,8 @@ export function Hero({ media }: { media: MediaItem }) {
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <Link
-              to={`/watch?id=${media.id}`}
+              to={`/watch?id=${media.id}&title=${encodeURIComponent(mediaTitle(media))}`}
+              state={{ media }}
               className="flex items-center gap-2 rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black shadow-lg transition-all duration-200 hover:bg-white/80 sm:px-8 sm:py-3 sm:text-base"
             >
               <Play className="size-5 fill-current" /> Play
