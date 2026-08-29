@@ -314,8 +314,8 @@ export function updateUserSubscription(
     quality: cfg.quality,
     status: status || current.subscription?.status || "active",
     currentPeriodEnd: customExpiryISO || current.subscription?.currentPeriodEnd || futureDateISO(30),
-    cardBrand: cardBrand || current.subscription?.cardBrand || "visa",
-    cardLast4: cardLast4 || current.subscription?.cardLast4 || "4242",
+    cardBrand: cardBrand || current.subscription?.cardBrand || "",
+    cardLast4: cardLast4 || current.subscription?.cardLast4 || "",
     cancelAtPeriodEnd: status === "canceled",
   };
 
