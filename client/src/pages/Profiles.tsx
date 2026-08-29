@@ -42,6 +42,8 @@ const DEFAULT_PROFILES: ProfileItem[] = [
   { id: "p4", name: "Guest", avatar: "linear-gradient(135deg,#059669,#84cc16)", face: "G" },
 ];
 
+import { apiRequest } from "@/lib/api";
+
 const PROFILES_STORAGE_KEY = "streamly_profiles";
 
 export default function ProfilesPage() {
@@ -79,6 +81,26 @@ export default function ProfilesPage() {
   const [enteredPin, setEnteredPin] = useState("");
   const [pinError, setPinError] = useState(false);
 
+  // Fetch profiles from backend API
+  useEffect(() => {
+    apiRequest<{ status: string; data: ProfileItem[] }>("/profiles")
+      .then((res) => {
+        if (res.data && res.data.length > 0) {
+          const formatted = res.data.map((p) => ({
+            id: p.id,
+            name: p.name,
+            avatar: p.avatar || AVATAR_GRADIENTS[0].gradient,
+            face: p.face || (p.kids ? "★" : p.name.charAt(0).toUpperCase()),
+            kids: p.kids || (p as unknown as { isKids?: boolean }).isKids,
+            pin: p.pin,
+          }));
+          setProfiles(formatted);
+          localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(formatted));
+        }
+      })
+      .catch(() => { /* fallback to local storage */ });
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
@@ -105,7 +127,7 @@ export default function ProfilesPage() {
 
   function launchProfile(profile: ProfileItem) {
     setLeaving(profile.name);
-    setProfile({ name: profile.name, avatar: profile.avatar, kids: profile.kids });
+    setProfile({ id: profile.id, name: profile.name, avatar: profile.avatar, kids: profile.kids });
     window.setTimeout(() => navigate("/browse"), 350);
   }
 
@@ -123,7 +145,7 @@ export default function ProfilesPage() {
     }
   }
 
-  function handleCreateProfile(e: React.FormEvent) {
+  async function handleCreateProfile(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = newName.trim();
     if (!trimmed) return;
@@ -139,13 +161,33 @@ export default function ProfilesPage() {
 
     setProfiles((prev) => [...prev, newProfile]);
     setShowAddModal(false);
+
+    // Call backend API
+    try {
+      const res = await apiRequest<{ data: ProfileItem }>("/profiles", {
+        method: "POST",
+        body: JSON.stringify({
+          name: trimmed,
+          avatar: newAvatar,
+          face: newIsKids ? "★" : trimmed.charAt(0).toUpperCase(),
+          isKids: newIsKids,
+          pin: newPin.trim() ? newPin.trim().slice(0, 4) : undefined,
+        }),
+      });
+      if (res.data?.id) {
+        setProfiles((prev) =>
+          prev.map((p) => (p.id === newProfile.id ? { ...p, id: res.data.id } : p))
+        );
+      }
+    } catch { /* offline fallback */ }
+
     setNewName("");
     setNewAvatar(AVATAR_GRADIENTS[0].gradient);
     setNewIsKids(false);
     setNewPin("");
   }
 
-  function handleSaveEditProfile(e: React.FormEvent) {
+  async function handleSaveEditProfile(e: React.FormEvent) {
     e.preventDefault();
     if (!editingProfile) return;
     const trimmed = editingProfile.name.trim();
@@ -163,12 +205,35 @@ export default function ProfilesPage() {
           : p
       )
     );
+
+    // Call backend API if ID is from server
+    if (editingProfile.id && !editingProfile.id.startsWith("prof_")) {
+      try {
+        await apiRequest(`/profiles/${editingProfile.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            name: trimmed,
+            avatar: editingProfile.avatar,
+            isKids: editingProfile.kids,
+            pin: editingProfile.pin?.trim() ? editingProfile.pin.trim().slice(0, 4) : undefined,
+          }),
+        });
+      } catch { /* offline fallback */ }
+    }
+
     setEditingProfile(null);
   }
 
-  function handleDeleteProfile(id: string) {
+  async function handleDeleteProfile(id: string) {
     if (profiles.length <= 1) return;
     setProfiles((prev) => prev.filter((p) => p.id !== id));
+
+    if (id && !id.startsWith("prof_")) {
+      try {
+        await apiRequest(`/profiles/${id}`, { method: "DELETE" });
+      } catch { /* offline fallback */ }
+    }
+
     setEditingProfile(null);
   }
 

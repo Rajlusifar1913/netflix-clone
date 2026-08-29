@@ -174,6 +174,8 @@ export default function AccountPage() {
   const [modalMessage, setModalMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [invoices, setInvoices] = useState(MOCK_INVOICES);
+
   useEffect(() => {
     // Fetch live subscription status from API
     apiRequest<{ data: SubscriptionState }>("/payments/subscription")
@@ -183,6 +185,15 @@ export default function AccountPage() {
       .catch(() => {
         // Fallback to local session defaults
       });
+
+    // Fetch live billing invoices from API
+    apiRequest<{ data: { invoices: typeof MOCK_INVOICES } }>("/payments/invoices")
+      .then((res) => {
+        if (res?.data?.invoices && res.data.invoices.length > 0) {
+          setInvoices(res.data.invoices);
+        }
+      })
+      .catch(() => { /* fallback to mock invoices */ });
   }, []);
 
   async function handlePlanChange(planId: string) {
@@ -610,7 +621,7 @@ export default function AccountPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 text-[#ccc]">
-                {MOCK_INVOICES.map((inv) => (
+                {invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-white/[0.02] transition">
                     <td className="py-3.5 pl-2 font-mono text-white font-semibold">{inv.id}</td>
                     <td className="py-3.5">{inv.date}</td>

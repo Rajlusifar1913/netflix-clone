@@ -54,7 +54,19 @@ async function fetchPopularCategory(endpoint: string): Promise<MediaItem[]> {
   return (json.results ?? []).filter((item) => item.backdrop_path);
 }
 
+import { apiRequest } from "@/lib/api";
+
 async function loadPopularData(): Promise<BrowseData> {
+  try {
+    const serverRes = await apiRequest<{ data: { featured?: MediaItem; rows?: { title: string; items: MediaItem[] }[] } }>("/media/browse");
+    if (serverRes?.data?.rows && serverRes.data.rows.length > 0) {
+      return {
+        featured: serverRes.data.featured || serverRes.data.rows[0].items[0] || FALLBACK_POPULAR[0],
+        rows: serverRes.data.rows,
+      };
+    }
+  } catch { /* fallback to TMDB/local catalogue below */ }
+
   try {
     const results = await Promise.all(
       NEW_POPULAR_CATEGORIES.map(([, ep]) => fetchPopularCategory(ep))

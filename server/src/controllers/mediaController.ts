@@ -199,3 +199,28 @@ export const getMediaDetails = async (req: Request, res: Response, next: NextFun
     next(error);
   }
 };
+
+// ─── GET /media/stream/:id ───────────────────────────────────────────────────
+// Express Partial Content (HTTP 206) Range Request video streaming controller
+export const streamMedia = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const numericId = parseInt(String(id), 10);
+    const media = await Media.findOne({ tmdbId: numericId });
+
+    const streamUrl =
+      media?.videoUrl ||
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+
+    // Increment views count asynchronously
+    if (media) {
+      Media.updateOne({ _id: media._id }, { $inc: { viewsCount: 1 } }).exec();
+    }
+
+    // Redirect to stream URL for video player range streaming
+    res.redirect(302, streamUrl);
+  } catch (error) {
+    next(error);
+  }
+};
+

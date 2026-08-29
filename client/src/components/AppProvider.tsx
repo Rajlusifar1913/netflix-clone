@@ -14,7 +14,9 @@ import type { Toast } from "@/components/ToastContainer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ActiveProfile { name: string; avatar: string; kids?: boolean }
+import { apiRequest } from "@/lib/api";
+
+interface ActiveProfile { id?: string; name: string; avatar: string; kids?: boolean }
 
 export interface WatchHistoryEntry {
   id: number;
@@ -100,13 +102,27 @@ function AppStateProvider({ children }: { children: ReactNode }) {
 
   const toggleList = useCallback((id: number) => {
     setMyList((current) => {
-      const next = current.includes(id)
+      const isRemoving = current.includes(id);
+      const next = isRemoving
         ? current.filter((item) => item !== id)
         : [...current, id];
       localStorage.setItem("streamly-list", JSON.stringify(next));
+
+      // Sync with backend if profile has an ID
+      if (profile?.id) {
+        apiRequest(`/profiles/${profile.id}/mylist`, {
+          method: "POST",
+          body: JSON.stringify({
+            mediaId: id,
+            mediaType: "movie",
+            title: "Title",
+          }),
+        }).catch(() => { /* offline fallback */ });
+      }
+
       return next;
     });
-  }, []);
+  }, [profile]);
 
   // ── Toast system ─────────────────────────────────────────────────────────────
   const showToast = useCallback(
@@ -129,9 +145,26 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       try {
         localStorage.setItem(WATCH_HISTORY_KEY, JSON.stringify(updated));
       } catch { /* ignore */ }
+
+      // Sync with backend profile watch history
+      if (profile?.id) {
+        apiRequest(`/profiles/${profile.id}/history`, {
+          method: "POST",
+          body: JSON.stringify({
+            mediaId: entry.id,
+            mediaType: entry.media_type || "movie",
+            title: entry.title,
+            posterPath: entry.poster_path,
+            backdropPath: entry.backdrop_path,
+            progress: entry.progress,
+            duration: 100,
+          }),
+        }).catch(() => { /* offline fallback */ });
+      }
+
       return updated;
     });
-  }, []);
+  }, [profile]);
 
   const clearWatchHistory = useCallback(() => {
     setWatchHistory([]);

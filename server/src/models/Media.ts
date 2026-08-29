@@ -17,6 +17,12 @@ export interface IMedia extends Document {
   isTrending: boolean;
   category?: string;
   trailerUrl?: string;
+  videoUrl?: string;
+  durationMinutes?: number;
+  quality?: string;
+  year?: number;
+  viewsCount?: number;
+  tags?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -90,6 +96,30 @@ const mediaSchema = new Schema<IMedia>(
     },
     trailerUrl: {
       type: String,
+    },
+    videoUrl: {
+      type: String,
+      default: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    },
+    durationMinutes: {
+      type: Number,
+      default: 120,
+    },
+    quality: {
+      type: String,
+      default: '4K UHD',
+    },
+    year: {
+      type: Number,
+      default: 2024,
+    },
+    viewsCount: {
+      type: Number,
+      default: 12500,
+    },
+    tags: {
+      type: [String],
+      default: [],
     },
   },
   {

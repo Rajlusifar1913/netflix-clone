@@ -69,7 +69,27 @@ const CACHE_KEY = "streamly_browse_cache";
 const CACHE_TIME_KEY = "streamly_browse_cache_time";
 const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
+import { apiRequest } from "@/lib/api";
+
 async function loadBrowseData(): Promise<BrowseData> {
+  // 1. Try Backend /media/browse API
+  try {
+    const serverRes = await apiRequest<{ data: { featured?: MediaItem; rows?: { title: string; items: MediaItem[] }[] } }>("/media/browse");
+    if (serverRes?.data?.rows && serverRes.data.rows.length > 0) {
+      const data: BrowseData = {
+        featured: serverRes.data.featured || serverRes.data.rows[0].items[0] || FALLBACK[0],
+        rows: serverRes.data.rows,
+      };
+      try {
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify(data));
+        sessionStorage.setItem(CACHE_TIME_KEY, String(Date.now()));
+      } catch { /* ignore */ }
+      return data;
+    }
+  } catch {
+    // Fall through to TMDB / fallback catalogue below
+  }
+
   try {
     const results = await Promise.all(CATEGORIES.map(([, ep]) => fetchCategory(ep)));
     const rows = CATEGORIES.map(([title], i) => ({

@@ -6,9 +6,15 @@ import {
   logout,
   refreshTokenHandler,
   getMe,
+  forgotPasswordOtp,
+  verifyResetOtp,
+  resetPassword,
   registerSchema,
   loginSchema,
   googleLoginSchema,
+  otpRequestSchema,
+  verifyOtpSchema,
+  resetPasswordSchema,
 } from '../controllers/authController.js';
 import { protect } from '../middlewares/auth.js';
 import { validate } from '../middlewares/validate.js';
@@ -22,5 +28,10 @@ router.post('/google', authLimiter, validate(googleLoginSchema), googleLogin);
 router.post('/logout', logout);
 router.post('/refresh', refreshTokenHandler);
 router.get('/me', protect, getMe);
+
+// OTP & Password Recovery
+router.post('/forgot-password-otp', authLimiter, validate(otpRequestSchema), forgotPasswordOtp);
+router.post('/verify-reset-otp', authLimiter, validate(verifyOtpSchema), verifyResetOtp);
+router.post('/reset-password', authLimiter, validate(resetPasswordSchema), resetPassword);
 
 export default router;

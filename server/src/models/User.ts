@@ -24,6 +24,9 @@ export interface IUser extends Document {
   avatar?: string;
   subscription: ISubscription;
   refreshTokens: string[];
+  otpCode?: string | null;
+  otpExpiresAt?: Date | null;
+  isVerified?: boolean;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -140,6 +143,20 @@ const userSchema = new Schema<IUser>(
       type: [String],
       default: [],
       select: false,
+    },
+    otpCode: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    otpExpiresAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
+    isVerified: {
+      type: Boolean,
+      default: true,
     },
   },
   {

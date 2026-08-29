@@ -12,6 +12,7 @@ import authRoutes from './routes/authRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import mediaRoutes from './routes/mediaRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { stripeWebhook } from './controllers/paymentController.js';
 
 export const createApp = (): express.Application => {
@@ -82,6 +83,7 @@ export const createApp = (): express.Application => {
   app.use('/api/v1/profiles', profileRoutes);
   app.use('/api/v1/media', mediaRoutes);
   app.use('/api/v1/payments', paymentRoutes);
+  app.use('/api/v1/admin', adminRoutes);
 
   // Handle Unhandled Routes (404)
   app.all('*', (req: Request, _res: Response, next) => {

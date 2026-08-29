@@ -1,9 +1,4 @@
-/**
- * plansStore.ts
- * Single source of truth for Subscription Plans in Streamly.
- * Allows administrators to add new plans, modify plan prices/amounts, duration, specs, quality, and active status.
- * Automatically synchronizes with localStorage and dispatches reactive events.
- */
+import { apiRequest } from "./api";
 
 export interface SubscriptionPlanItem {
   id: string;
@@ -129,6 +124,26 @@ export function getPlanById(id: string): SubscriptionPlanItem | undefined {
 function savePlans(plans: SubscriptionPlanItem[]): void {
   localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(plans));
   window.dispatchEvent(new CustomEvent("streamly:plans-change", { detail: plans }));
+}
+
+/**
+ * Fetch active subscription plans from backend API
+ */
+export async function fetchServerPlans(): Promise<SubscriptionPlanItem[]> {
+  try {
+    const res = await apiRequest<{ data: SubscriptionPlanItem[] }>("/admin/plans");
+    if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+      const formatted = res.data.map((p) => ({
+        ...p,
+        id: p.id || (p as unknown as { planId?: string }).planId || "plan",
+      }));
+      savePlans(formatted);
+      return formatted;
+    }
+  } catch {
+    // Fall back to local storage
+  }
+  return getAllPlans();
 }
 
 /**

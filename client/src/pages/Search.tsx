@@ -7,6 +7,7 @@ import { MovieRow } from "@/components/MovieRow";
 import { mediaTitle } from "@/lib/utils";
 import type { MediaItem } from "@/types/media";
 import { getCatalogVideos, GENRE_MAP } from "@/lib/videoCatalog";
+import { apiRequest } from "@/lib/api";
 
 const SEARCH_HISTORY_KEY = "streamly-search-history";
 const MAX_HISTORY = 8;
@@ -40,6 +41,24 @@ export default function SearchPage() {
     window.addEventListener("streamly:catalog-change", handleUpdate);
     return () => window.removeEventListener("streamly:catalog-change", handleUpdate);
   }, []);
+
+  // Fetch backend search API results
+  useEffect(() => {
+    if (!query.trim()) return;
+
+    apiRequest<{ data: { results: MediaItem[] } }>(`/media/search?q=${encodeURIComponent(query.trim())}`)
+      .then((res) => {
+        if (res?.data?.results && res.data.results.length > 0) {
+          setCatalogItems((prev) => {
+            const combinedMap = new Map<number, MediaItem>();
+            prev.forEach((item) => combinedMap.set(item.id, item));
+            res.data.results.forEach((item) => combinedMap.set(item.id || (item as unknown as { tmdbId?: number }).tmdbId || Math.floor(Math.random() * 100000), item));
+            return Array.from(combinedMap.values());
+          });
+        }
+      })
+      .catch(() => { /* fallback to local filtering */ });
+  }, [query]);
 
   const handleSearch = (term: string) => {
     setQuery(term);

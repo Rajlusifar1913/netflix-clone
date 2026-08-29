@@ -79,26 +79,26 @@ export async function adminLogin(
   const trimmedId = adminIdInput.trim().toLowerCase();
   const creds = getStoredCredentials();
 
-  // 1. Try Backend Authentication if available
+  // 1. Try Dedicated Admin Backend Endpoint (/admin/login)
   try {
     const emailToUse = trimmedId.includes('@') ? trimmedId : 'admin@streamly.com';
     const res = await apiRequest<{
       token: string;
       data: { user: { id: string; name: string; email: string; role?: string; avatar?: string } };
-    }>("/auth/login", {
+    }>("/admin/login", {
       method: "POST",
       body: JSON.stringify({ email: emailToUse, password: passwordInput }),
     });
 
-    if (res?.data?.user?.role === 'admin' || emailToUse === 'admin@streamly.com') {
+    if (res?.token) {
       setStoredToken(res.token);
       const sessionUser: AdminUser = {
-        id: res.data.user.id || 'admin',
-        name: res.data.user.name || 'Admin User',
-        email: res.data.user.email || 'admin@streamly.com',
+        id: res.data?.user?.id || 'admin',
+        name: res.data?.user?.name || 'Admin User',
+        email: res.data?.user?.email || 'admin@streamly.com',
         role: 'super_admin',
-        avatar: res.data.user.avatar || 'linear-gradient(135deg,#e50914,#ff3b30)',
-        token: res.token || `admin_jwt_${Date.now()}`,
+        avatar: res.data?.user?.avatar || 'linear-gradient(135deg,#e50914,#ff3b30)',
+        token: res.token,
         loginAt: new Date().toISOString(),
       };
 
@@ -110,7 +110,7 @@ export async function adminLogin(
       return { ok: true, user: sessionUser };
     }
   } catch {
-    // Backend offline or local admin fallback
+    // Fallback to user auth or local admin check below
   }
 
   // 2. Local Fallback Authentication

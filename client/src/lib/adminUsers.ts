@@ -9,6 +9,7 @@ import {
   getAllPlans,
   getPlanById,
 } from "./plansStore";
+import { apiRequest } from "./api";
 
 export interface UserSubscriptionDetails {
   status: "active" | "canceled" | "past_due" | "unpaid" | "trial";
@@ -365,6 +366,58 @@ export function getAllAdminUsers(): AdminManagedUser[] {
 function saveUsers(users: AdminManagedUser[]): void {
   localStorage.setItem(MANAGED_USERS_KEY, JSON.stringify(users));
   window.dispatchEvent(new CustomEvent("streamly:users-change", { detail: users }));
+}
+
+/**
+ * Async fetch users from backend API /admin/users
+ */
+export async function fetchServerAdminUsers(): Promise<AdminManagedUser[]> {
+  try {
+    const res = await apiRequest<{ data: Record<string, unknown>[] }>("/admin/users");
+    if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+      const formatted: AdminManagedUser[] = res.data.map((u) => {
+        const sub = (u.subscription || {}) as Record<string, unknown>;
+        const planId = (sub.planId as string) || "premium";
+        const cfg = getPlanConfig(planId);
+
+        return {
+          id: (u.id || u._id) as string,
+          name: (u.name as string) || "Member",
+          email: (u.email as string) || "",
+          role: (u.role as "user" | "admin") || "user",
+          planId,
+          planName: (sub.planName as string) || cfg.name,
+          status: (sub.status === "suspended" ? "suspended" : "active") as "active" | "suspended" | "pending",
+          authProvider: (u.authProvider as "local" | "google") || "local",
+          avatar: (u.avatar as string) || "linear-gradient(135deg,#0072d2,#62d5ff)",
+          createdAt: (u.createdAt as string) || new Date().toISOString(),
+          lastActive: "Active Now",
+          totalViews: 45,
+          subscription: {
+            status: (sub.status as UserSubscriptionDetails["status"]) || "active",
+            planId,
+            planName: (sub.planName as string) || cfg.name,
+            planSpecs: (sub.planSpecs as string) || cfg.specs,
+            price: cfg.price,
+            monthlyAmount: cfg.monthlyAmount,
+            screens: cfg.screens,
+            quality: cfg.quality,
+            cardLast4: (sub.cardLast4 as string) || "4242",
+            cardBrand: (sub.cardBrand as string) || "visa",
+            billingCycle: "monthly",
+            currentPeriodEnd: (sub.currentPeriodEnd as string) || futureDateISO(30),
+            cancelAtPeriodEnd: !!sub.cancelAtPeriodEnd,
+          },
+        };
+      });
+
+      saveUsers(formatted);
+      return formatted;
+    }
+  } catch {
+    // Fall back to local storage
+  }
+  return getAllAdminUsers();
 }
 
 /**

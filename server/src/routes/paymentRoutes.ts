@@ -6,6 +6,7 @@ import {
   updateCredentials,
   createCheckoutSession,
   createSetupIntent,
+  getInvoices,
   changePlanSchema,
   updateCredentialsSchema,
   updatePaymentMethodSchema,
@@ -19,6 +20,7 @@ const router = Router();
 router.use(protect);
 
 router.get('/subscription', getSubscription);
+router.get('/invoices', getInvoices);
 router.post('/change-plan', validate(changePlanSchema), changePlan);
 
 // PCI-safe: accepts Stripe paymentMethodId (not raw card data)

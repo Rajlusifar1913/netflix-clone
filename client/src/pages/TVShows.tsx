@@ -57,7 +57,26 @@ async function fetchTVCategory(endpoint: string): Promise<MediaItem[]> {
     .map((item) => ({ ...item, media_type: "tv" }));
 }
 
+import { apiRequest } from "@/lib/api";
+
 async function loadTVData(): Promise<BrowseData> {
+  try {
+    const serverRes = await apiRequest<{ data: { featured?: MediaItem; rows?: { title: string; items: MediaItem[] }[] } }>("/media/browse");
+    if (serverRes?.data?.rows && serverRes.data.rows.length > 0) {
+      const tvRows = serverRes.data.rows.map((row) => ({
+        ...row,
+        items: row.items.filter((item) => item.media_type === "tv"),
+      })).filter((row) => row.items.length > 0);
+
+      if (tvRows.length > 0) {
+        return {
+          featured: tvRows[0].items[0] || FALLBACK_TV[0],
+          rows: tvRows,
+        };
+      }
+    }
+  } catch { /* fallback to TMDB/local catalogue below */ }
+
   try {
     const results = await Promise.all(TV_CATEGORIES.map(([, ep]) => fetchTVCategory(ep)));
     const rows = TV_CATEGORIES.map(([title], i) => ({

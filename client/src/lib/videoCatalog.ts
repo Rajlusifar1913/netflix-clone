@@ -4,6 +4,7 @@
  * Synchronizes with localStorage (streamly_video_catalog) and provides real-time event dispatching.
  */
 import type { MediaItem } from "@/types/media";
+import { apiRequest } from "./api";
 
 export interface VideoCatalogItem extends MediaItem {
   videoUrl?: string;
@@ -274,6 +275,40 @@ export function getCatalogVideos(): VideoCatalogItem[] {
 function saveCatalog(items: VideoCatalogItem[]): void {
   localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(items));
   window.dispatchEvent(new CustomEvent("streamly:catalog-change", { detail: items }));
+}
+
+/**
+ * Fetch video catalog asynchronously from backend API
+ */
+export async function fetchServerCatalog(): Promise<VideoCatalogItem[]> {
+  try {
+    const res = await apiRequest<{ data: Record<string, unknown>[] }>("/admin/catalog");
+    if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+      const formatted: VideoCatalogItem[] = res.data.map((item) => ({
+        id: (item.tmdbId || item.id) as number,
+        title: (item.title as string) || "Untitled",
+        overview: (item.overview as string) || "",
+        backdrop_path: (item.backdropPath || item.backdrop_path) as string | null,
+        poster_path: (item.posterPath || item.poster_path) as string | null,
+        vote_average: (item.voteAverage || item.vote_average || 7.5) as number,
+        release_date: item.releaseDate as string | undefined,
+        first_air_date: item.firstAirDate as string | undefined,
+        media_type: (item.mediaType || "movie") as "movie" | "tv",
+        genre_ids: (item.genreIds as number[]) || [28, 12],
+        quality: (item.quality as VideoCatalogItem["quality"]) || "4K UHD",
+        durationMinutes: (item.durationMinutes as number) || 120,
+        videoUrl: (item.videoUrl as string) || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        viewsCount: (item.viewsCount as number) || 15000,
+        addedAt: (item.createdAt as string) || new Date().toISOString(),
+      }));
+
+      saveCatalog(formatted);
+      return formatted;
+    }
+  } catch {
+    // Fall back to local storage
+  }
+  return getCatalogVideos();
 }
 
 /**

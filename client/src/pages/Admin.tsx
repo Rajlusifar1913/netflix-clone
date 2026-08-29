@@ -43,6 +43,7 @@ import {
 
 import {
   getCatalogVideos,
+  fetchServerCatalog,
   createVideo,
   updateVideo,
   deleteVideo,
@@ -64,6 +65,7 @@ import {
 
 import {
   getAllPlans,
+  fetchServerPlans,
   createSubscriptionPlan,
   updateSubscriptionPlan,
   deleteSubscriptionPlan,
@@ -74,6 +76,7 @@ import {
 
 import {
   getAllAdminUsers,
+  fetchServerAdminUsers,
   createAdminUser,
   deleteAdminUser,
   toggleUserStatus,
@@ -122,8 +125,8 @@ export default function AdminPage() {
   const [topVideos, setTopVideos] = useState<TopVideoStats[]>([]);
   const [timelineDays, setTimelineDays] = useState<number>(14);
 
-  // Reload all data from storage
-  const reloadData = () => {
+  // Reload all data from storage & backend API
+  const reloadData = async () => {
     setVideos(getCatalogVideos());
     setUsers(getAllAdminUsers());
     setPlans(getAllPlans());
@@ -131,6 +134,22 @@ export default function AdminPage() {
     setSubAnalytics(getSubscriptionAnalytics());
     setViewsTimeline(getViewsTimeline(timelineDays));
     setTopVideos(getTopVideosAnalytics(15));
+
+    // Fetch live backend server data asynchronously
+    try {
+      const [fetchedUsers, fetchedCatalog, fetchedPlans] = await Promise.all([
+        fetchServerAdminUsers(),
+        fetchServerCatalog(),
+        fetchServerPlans(),
+      ]);
+      setUsers(fetchedUsers);
+      setVideos(fetchedCatalog);
+      setPlans(fetchedPlans);
+      setSubAnalytics(getSubscriptionAnalytics());
+      setAnalyticsSummary(getAnalyticsSummary());
+    } catch {
+      // Fallback already set above
+    }
   };
 
   useEffect(() => {

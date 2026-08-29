@@ -26,6 +26,11 @@ const envSchema = z.object({
   STRIPE_CANCEL_URL: z.string().default('http://localhost:5173/account?payment=cancelled'),
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  SMTP_HOST: z.string().optional().default('smtp.gmail.com'),
+  SMTP_PORT: z.string().transform((val) => parseInt(val, 10)).default('587'),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASS: z.string().optional().default(''),
+  SMTP_FROM: z.string().default('Streamly Support <no-reply@streamly.app>'),
 });
 
 const parseEnv = () => {

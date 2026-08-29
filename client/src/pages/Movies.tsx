@@ -57,7 +57,26 @@ async function fetchMovieCategory(endpoint: string): Promise<MediaItem[]> {
     .map((item) => ({ ...item, media_type: "movie" }));
 }
 
+import { apiRequest } from "@/lib/api";
+
 async function loadMovieData(): Promise<BrowseData> {
+  try {
+    const serverRes = await apiRequest<{ data: { featured?: MediaItem; rows?: { title: string; items: MediaItem[] }[] } }>("/media/browse");
+    if (serverRes?.data?.rows && serverRes.data.rows.length > 0) {
+      const movieRows = serverRes.data.rows.map((row) => ({
+        ...row,
+        items: row.items.filter((item) => (item.media_type || "movie") === "movie"),
+      })).filter((row) => row.items.length > 0);
+
+      if (movieRows.length > 0) {
+        return {
+          featured: movieRows[0].items[0] || FALLBACK_MOVIES[0],
+          rows: movieRows,
+        };
+      }
+    }
+  } catch { /* fallback to TMDB/local catalogue below */ }
+
   try {
     const results = await Promise.all(MOVIE_CATEGORIES.map(([, ep]) => fetchMovieCategory(ep)));
     const rows = MOVIE_CATEGORIES.map(([title], i) => ({

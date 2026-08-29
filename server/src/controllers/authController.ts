@@ -6,6 +6,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { User } from '../models/User.js';
 import { Profile } from '../models/Profile.js';
 import { env } from '../config/env.js';
+import { sendOtpEmail } from '../utils/emailService.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import { AuthenticatedRequest } from '../middlewares/auth.js';
 
@@ -392,3 +393,120 @@ export const getMe = async (req: AuthenticatedRequest, res: Response, next: Next
     next(error);
   }
 };
+
+// ─── OTP Validation Schemas ───────────────────────────────────────────────────
+export const otpRequestSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email address'),
+  }),
+});
+
+export const verifyOtpSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email address'),
+    otp: z.string().length(6, 'OTP code must be 6 digits'),
+  }),
+});
+
+export const resetPasswordSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email address'),
+    otp: z.string().length(6, 'OTP code must be 6 digits'),
+    newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+  }),
+});
+
+// Helper to generate 6-digit numeric OTP
+const generate6DigitOtp = (): string => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// ─── POST /auth/forgot-password-otp ──────────────────────────────────────────
+export const forgotPasswordOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    if (!user) {
+      // Don't leak registered emails; return success response
+      res.status(200).json({
+        status: 'success',
+        message: 'If an account exists with that email, a 6-digit OTP code has been sent.',
+      });
+      return;
+    }
+
+    const otp = generate6DigitOtp();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    user.otpCode = crypto.createHash('sha256').update(otp).digest('hex');
+    user.otpExpiresAt = otpExpires;
+    await user.save({ validateBeforeSave: false });
+
+    // Send email using Nodemailer
+    await sendOtpEmail(user.email, otp, 'reset');
+
+    res.status(200).json({
+      status: 'success',
+      message: 'A 6-digit OTP code has been sent to your email address.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── POST /auth/verify-reset-otp ──────────────────────────────────────────────
+export const verifyResetOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email, otp } = req.body;
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      otpCode: hashedOtp,
+      otpExpiresAt: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return next(new AppError('Invalid or expired OTP verification code.', 400));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'OTP code verified successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── POST /auth/reset-password ────────────────────────────────────────────────
+export const resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      otpCode: hashedOtp,
+      otpExpiresAt: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return next(new AppError('Invalid or expired OTP code. Request a new OTP.', 400));
+    }
+
+    user.password = newPassword;
+    user.otpCode = null;
+    user.otpExpiresAt = null;
+    await user.save();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Password reset successfully. You can now log in with your new password.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
