@@ -1,19 +1,46 @@
 import nodemailer from 'nodemailer';
+import dns from 'dns';
 import { env } from '../config/env.js';
 
+// Force Node.js DNS resolver to prioritize IPv4 over IPv6.
+// Cloud environments like Render do not support outbound IPv6 connections (causing ENETUNREACH errors).
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore if not supported in older node versions
+}
+
 /**
- * Creates Nodemailer Transporter
+ * Creates Nodemailer Transporter configured for cloud environments
  */
 const createTransporter = () => {
   if (env.SMTP_USER && env.SMTP_PASS) {
+    const isGmail = env.SMTP_HOST?.includes('gmail') || env.SMTP_USER.includes('@gmail');
+    const cleanPass = env.SMTP_PASS.replace(/\s+/g, '');
+
+    if (isGmail) {
+      return nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: env.SMTP_USER,
+          pass: cleanPass,
+        },
+        // Prevent hanging on network issues
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+      });
+    }
+
     return nodemailer.createTransport({
       host: env.SMTP_HOST || 'smtp.gmail.com',
-      port: env.SMTP_PORT || 587,
-      secure: env.SMTP_PORT === 465,
+      port: Number(env.SMTP_PORT) || 587,
+      secure: Number(env.SMTP_PORT) === 465,
       auth: {
         user: env.SMTP_USER,
-        pass: env.SMTP_PASS,
+        pass: cleanPass,
       },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
     });
   }
   return null;
