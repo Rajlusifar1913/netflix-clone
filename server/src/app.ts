@@ -71,8 +71,8 @@ export const createApp = (): express.Application => {
   // Apply General Rate Limiter to API routes
   app.use('/api', apiLimiter);
 
-  // Health Check Endpoint
-  app.get('/health', (_req: Request, res: Response) => {
+  // Root & Health Check Endpoints (for Render, uptime monitors, and status probes)
+  const getServiceStatus = () => {
     const dbState = mongoose.connection.readyState;
     const dbStatusMap: Record<number, string> = {
       0: 'disconnected',
@@ -81,7 +81,7 @@ export const createApp = (): express.Application => {
       3: 'disconnecting',
     };
 
-    res.status(200).json({
+    return {
       status: 'ok',
       service: 'Streamly Backend API',
       version: '1.0.0',
@@ -91,7 +91,19 @@ export const createApp = (): express.Application => {
         status: dbStatusMap[dbState] || 'unknown',
         name: mongoose.connection.name || 'none',
       },
-    });
+    };
+  };
+
+  app.get('/', (_req: Request, res: Response) => {
+    res.status(200).json(getServiceStatus());
+  });
+
+  app.head('/', (_req: Request, res: Response) => {
+    res.status(200).end();
+  });
+
+  app.get('/health', (_req: Request, res: Response) => {
+    res.status(200).json(getServiceStatus());
   });
 
   // API v1 Routes
