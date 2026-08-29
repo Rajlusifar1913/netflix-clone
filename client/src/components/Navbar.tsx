@@ -76,7 +76,21 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
   const [searchValue, setSearchValue] = useState("");
   const [menu, setMenu] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const userKey = session?.user?.email?.toLowerCase().trim() || session?.user?.id || "default";
+  const readNotifsKey = `streamly_read_notifs_${userKey}`;
+
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
+    try {
+      const readIds = (JSON.parse(localStorage.getItem(readNotifsKey) || "[]") as string[]) || [];
+      return INITIAL_NOTIFICATIONS.map((n) => ({
+        ...n,
+        unread: readIds.includes(n.id) ? false : n.unread,
+      }));
+    } catch {
+      return INITIAL_NOTIFICATIONS;
+    }
+  });
+
   const [mobile, setMobile] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -104,12 +118,13 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
     }>("/notifications")
       .then((res) => {
         if (res?.data?.notifications && res.data.notifications.length > 0) {
+          const readIds = (JSON.parse(localStorage.getItem(readNotifsKey) || "[]") as string[]) || [];
           const formatted: NotificationItem[] = res.data.notifications.map((n) => ({
             id: n.id,
             title: n.title,
             desc: n.message,
             time: "Recently",
-            unread: !n.isRead,
+            unread: readIds.includes(n.id) ? false : !n.isRead,
             type: (n.type as any) || "release",
             link: n.link || "/browse",
           }));
@@ -117,10 +132,39 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
         }
       })
       .catch(() => { /* keep initial fallback */ });
-  }, [session]);
+  }, [session, readNotifsKey]);
+
+  const handleToggleNotifications = () => {
+    const nextState = !notifOpen;
+    setNotifOpen(nextState);
+    setMenu(false);
+
+    if (nextState && unreadCount > 0) {
+      // Once checked, clear red indicator immediately and save read state
+      setNotifications((prev) => {
+        const updated = prev.map((n) => ({ ...n, unread: false }));
+        try {
+          const allIds = updated.map((n) => n.id);
+          localStorage.setItem(readNotifsKey, JSON.stringify(allIds));
+        } catch { /* ignore */ }
+        return updated;
+      });
+
+      try {
+        apiRequest("/notifications/mark-all-read", { method: "PATCH" }).catch(() => {});
+      } catch { /* ignore */ }
+    }
+  };
 
   const markAllAsRead = async () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setNotifications((prev) => {
+      const updated = prev.map((n) => ({ ...n, unread: false }));
+      try {
+        const allIds = updated.map((n) => n.id);
+        localStorage.setItem(readNotifsKey, JSON.stringify(allIds));
+      } catch { /* ignore */ }
+      return updated;
+    });
     try {
       await apiRequest("/notifications/mark-all-read", { method: "PATCH" });
     } catch { /* ignore */ }
@@ -128,9 +172,16 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
   };
 
   const markAsRead = async (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
-    );
+    setNotifications((prev) => {
+      const updated = prev.map((n) => (n.id === id ? { ...n, unread: false } : n));
+      try {
+        const readIds = (JSON.parse(localStorage.getItem(readNotifsKey) || "[]") as string[]) || [];
+        if (!readIds.includes(id)) {
+          localStorage.setItem(readNotifsKey, JSON.stringify([...readIds, id]));
+        }
+      } catch { /* ignore */ }
+      return updated;
+    });
     if (!id.startsWith("n")) {
       try {
         await apiRequest(`/notifications/${id}/read`, { method: "PATCH" });
@@ -356,10 +407,7 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
         {/* Functional Notifications Bell with Popover */}
         <div ref={notifContainerRef} className="relative">
           <button
-            onClick={() => {
-              setNotifOpen(!notifOpen);
-              setMenu(false);
-            }}
+            onClick={handleToggleNotifications}
             className="relative hidden rounded-full p-2 text-gray-300 transition-all hover:bg-white/10 hover:text-white sm:block"
             aria-label="Notifications"
             title="Notifications"

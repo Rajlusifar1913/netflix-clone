@@ -36,32 +36,86 @@ const AVATAR_GRADIENTS = [
   { name: "Royal Indigo", gradient: "linear-gradient(135deg,#4338ca,#818cf8)" },
 ];
 
-const DEFAULT_PROFILES: ProfileItem[] = [
-  { id: "p1", name: "Alex", avatar: "linear-gradient(135deg,#0072d2,#62d5ff)", face: "A" },
-  { id: "p2", name: "Morgan", avatar: "linear-gradient(135deg,#6d28d9,#d946ef)", face: "M" },
-  { id: "p3", name: "Kids", avatar: "linear-gradient(135deg,#f59e0b,#ef4444)", face: "★", kids: true, pin: "1234", hasPin: true },
-  { id: "p4", name: "Guest", avatar: "linear-gradient(135deg,#059669,#84cc16)", face: "G" },
-];
-
 import { apiRequest } from "@/lib/api";
+import { useSession, type Session } from "@/lib/mockAuth";
 
-const PROFILES_STORAGE_KEY = "streamly_profiles";
+export function getDefaultProfilesForUser(session?: Session | null): ProfileItem[] {
+  const email = session?.user?.email?.toLowerCase().trim() || "";
+  const role = session?.user?.role?.toLowerCase().trim() || "";
+  const isAdmin = role === "admin" || email === "admin@streamly.com";
+
+  if (isAdmin) {
+    return [
+      {
+        id: "admin_adult",
+        name: "Admin",
+        avatar: "linear-gradient(135deg,#e50914,#ff3b30)",
+        face: "A",
+        kids: false,
+      },
+      {
+        id: "admin_kids",
+        name: "Junior",
+        avatar: "linear-gradient(135deg,#f59e0b,#ef4444)",
+        face: "★",
+        kids: true,
+        pin: "1234",
+        hasPin: true,
+      },
+    ];
+  }
+
+  // Normal User / Demo User / Standard User
+  const isDemo = email === "demo@streamly.com";
+  const adultName = isDemo ? "Alex" : (session?.user?.name?.trim() || "Alex");
+  const adultFace = adultName.charAt(0).toUpperCase() || "A";
+  const kidsName = isDemo ? "Kids" : `${adultName.split(" ")[0]} Kids`;
+
+  return [
+    {
+      id: isDemo ? "demo_adult" : `user_adult_${session?.user?.id || "default"}`,
+      name: adultName,
+      avatar: "linear-gradient(135deg,#0072d2,#62d5ff)",
+      face: adultFace,
+      kids: false,
+    },
+    {
+      id: isDemo ? "demo_kids" : `user_kids_${session?.user?.id || "default"}`,
+      name: kidsName,
+      avatar: "linear-gradient(135deg,#6d28d9,#d946ef)",
+      face: "★",
+      kids: true,
+      pin: "1234",
+      hasPin: true,
+    },
+  ];
+}
 
 export default function ProfilesPage() {
   const navigate = useNavigate();
   const { setProfile } = useApp();
+  const { data: session } = useSession();
+
+  const userKey = session?.user?.email?.toLowerCase().trim() || session?.user?.id || "default";
+  const storageKey = `streamly_profiles_${userKey}`;
 
   const [profiles, setProfiles] = useState<ProfileItem[]>(() => {
     try {
-      const saved = localStorage.getItem(PROFILES_STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // If previous 4-item global mock list was stored, clean it up with the 2-item user-specific defaults
+          if (parsed.length === 4 && parsed[0]?.name === "Alex" && parsed[1]?.name === "Morgan") {
+            return getDefaultProfilesForUser(session);
+          }
+          return parsed;
+        }
       }
     } catch {
       // Ignore
     }
-    return DEFAULT_PROFILES;
+    return getDefaultProfilesForUser(session);
   });
 
   const [isManaging, setIsManaging] = useState(false);
@@ -82,7 +136,36 @@ export default function ProfilesPage() {
   const [enteredPin, setEnteredPin] = useState("");
   const [pinError, setPinError] = useState(false);
 
-  // Fetch profiles from backend API
+  // Update profiles when session loads or switches
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (parsed.length === 4 && parsed[0]?.name === "Alex" && parsed[1]?.name === "Morgan") {
+            const defaults = getDefaultProfilesForUser(session);
+            setProfiles(defaults);
+            localStorage.setItem(storageKey, JSON.stringify(defaults));
+            return;
+          }
+          setProfiles(parsed);
+          return;
+        }
+      }
+    } catch {
+      // Ignore
+    }
+    const defaults = getDefaultProfilesForUser(session);
+    setProfiles(defaults);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(defaults));
+    } catch {
+      // Ignore
+    }
+  }, [session, storageKey]);
+
+  // Fetch profiles from backend API if available
   useEffect(() => {
     apiRequest<{ status: string; data: { profiles?: ProfileItem[] } | ProfileItem[] }>("/profiles")
       .then((res) => {
@@ -98,19 +181,19 @@ export default function ProfilesPage() {
             hasPin: p.hasPin || !!p.pin,
           }));
           setProfiles(formatted);
-          localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(formatted));
+          localStorage.setItem(storageKey, JSON.stringify(formatted));
         }
       })
-      .catch(() => { /* fallback to local storage */ });
-  }, []);
+      .catch(() => { /* fallback to user-scoped local storage */ });
+  }, [storageKey]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+      localStorage.setItem(storageKey, JSON.stringify(profiles));
     } catch {
       // Ignore
     }
-  }, [profiles]);
+  }, [profiles, storageKey]);
 
   function handleProfileClick(profile: ProfileItem) {
     if (isManaging) {

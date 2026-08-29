@@ -15,11 +15,24 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
-// ── Session indicator (non-sensitive boolean hint, NOT a token) ─────────────
+// ── Session & Token indicator ───────────────────────────────────────────────
 const SESSION_FLAG_KEY = 'streamly_has_session';
+const TOKEN_KEY = 'streamly_token';
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setStoredToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
 
 export function hasSession(): boolean {
-  return localStorage.getItem(SESSION_FLAG_KEY) === 'true';
+  return localStorage.getItem(SESSION_FLAG_KEY) === 'true' || !!getStoredToken();
 }
 
 export function setSessionFlag(active: boolean): void {
@@ -35,28 +48,39 @@ let refreshPromise: Promise<boolean> | null = null;
 
 /**
  * Attempts to silently refresh the access token using the httpOnly
- * refreshToken cookie. Returns true if refresh succeeded.
+ * refreshToken cookie or refresh endpoint. Returns true if refresh succeeded.
  */
 async function attemptTokenRefresh(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
     try {
+      const token = getStoredToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         credentials: 'include', // sends the httpOnly refreshToken cookie
-        headers: { 'Content-Type': 'application/json' },
+        headers,
       });
 
       if (!response.ok) {
+        setStoredToken(null);
         setSessionFlag(false);
         return false;
       }
 
-      // Refresh succeeded — the server has set a new httpOnly access token cookie
+      const data = (await response.json()) as { token?: string };
+      if (data.token) {
+        setStoredToken(data.token);
+      }
       setSessionFlag(true);
       return true;
     } catch {
+      setStoredToken(null);
       setSessionFlag(false);
       return false;
     } finally {
@@ -69,20 +93,20 @@ async function attemptTokenRefresh(): Promise<boolean> {
 
 /**
  * Core API request function with automatic silent token refresh on 401.
- * Relies entirely on httpOnly cookies — no Authorization header needed.
+ * Supports both cross-domain Authorization Bearer headers AND same-site httpOnly cookies.
  */
 export async function apiRequest<T = unknown>(
   endpoint: string,
   options: RequestInit = {},
   retrying = false
 ): Promise<T> {
+  const token = getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers as Record<string, string>),
   };
 
-  // SEC-1: No Authorization header — the httpOnly cookie is sent automatically
-  // by the browser when credentials: 'include' is set.
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
@@ -97,7 +121,8 @@ export async function apiRequest<T = unknown>(
       return apiRequest<T>(endpoint, options, true);
     }
 
-    // Refresh failed — clear session flag and redirect to login
+    // Refresh failed — clear session flag, token and redirect to login
+    setStoredToken(null);
     setSessionFlag(false);
     sessionStorage.removeItem('streamly_session');
     window.dispatchEvent(new Event('streamly:session-change'));
