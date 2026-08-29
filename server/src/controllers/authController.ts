@@ -112,6 +112,8 @@ const sendTokenResponse = async (
   });
 };
 
+import { seedWelcomeNotifications } from './notificationController.js';
+
 // ─── POST /auth/register ──────────────────────────────────────────────────────
 export const register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -122,11 +124,17 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       return next(new AppError('An account with this email address already exists.', 400));
     }
 
+    const otp = generate6DigitOtp();
+    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
     const newUser = await User.create({
       name,
       email: email.toLowerCase().trim(),
       password,
       authProvider: 'local',
+      isVerified: false,
+      otpCode: crypto.createHash('sha256').update(otp).digest('hex'),
+      otpExpiresAt: otpExpires,
     });
 
     // Automatically create default profile for the user
@@ -138,7 +146,96 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       isKids: false,
     });
 
-    await sendTokenResponse(newUser, 201, res, 'Account created successfully.');
+    // Dispatch verification OTP email
+    await sendOtpEmail(newUser.email, otp, 'verification');
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Account created. A 6-digit verification code has been dispatched to your email.',
+      data: {
+        email: newUser.email,
+        requiresVerification: true,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── POST /auth/verify-email ──────────────────────────────────────────────────
+export const verifyEmail = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return next(new AppError('Email address and 6-digit OTP code are required.', 400));
+    }
+
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      otpCode: hashedOtp,
+      otpExpiresAt: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return next(new AppError('Invalid or expired verification code.', 400));
+    }
+
+    user.isVerified = true;
+    user.otpCode = null;
+    user.otpExpiresAt = null;
+    await user.save({ validateBeforeSave: false });
+
+    // Seed onboarding notifications
+    await seedWelcomeNotifications(user._id);
+
+    // Issue session JWT cookies and log in user
+    await sendTokenResponse(user, 200, res, 'Email verified successfully. Welcome to Streamly!');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── POST /auth/resend-verification-otp ────────────────────────────────────────
+export const resendVerificationOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return next(new AppError('Email address is required.', 400));
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      // Return success to avoid email enumeration
+      res.status(200).json({
+        status: 'success',
+        message: 'If an unverified account exists, a new verification OTP has been sent.',
+      });
+      return;
+    }
+
+    if (user.isVerified) {
+      res.status(200).json({
+        status: 'success',
+        message: 'Your account is already verified. You can sign in directly.',
+      });
+      return;
+    }
+
+    const otp = generate6DigitOtp();
+    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    user.otpCode = crypto.createHash('sha256').update(otp).digest('hex');
+    user.otpExpiresAt = otpExpires;
+    await user.save({ validateBeforeSave: false });
+
+    await sendOtpEmail(user.email, otp, 'verification');
+
+    res.status(200).json({
+      status: 'success',
+      message: 'A fresh 6-digit verification OTP has been dispatched to your email.',
+    });
   } catch (error) {
     next(error);
   }
@@ -152,6 +249,25 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
     const user = await User.findOne({ email: email.toLowerCase().trim() }).select('+password');
     if (!user || !(await user.comparePassword(password))) {
       return next(new AppError('Invalid email or password.', 401));
+    }
+
+    if (!user.isVerified) {
+      // Trigger new OTP dispatch automatically for convenience
+      const otp = generate6DigitOtp();
+      user.otpCode = crypto.createHash('sha256').update(otp).digest('hex');
+      user.otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await user.save({ validateBeforeSave: false });
+      await sendOtpEmail(user.email, otp, 'verification');
+
+      res.status(403).json({
+        status: 'fail',
+        message: 'Please verify your email address before signing in. A new OTP has been sent to your email.',
+        data: {
+          requiresVerification: true,
+          email: user.email,
+        },
+      });
+      return;
     }
 
     await sendTokenResponse(user, 200, res, 'Signed in successfully.');
@@ -416,9 +532,10 @@ export const resetPasswordSchema = z.object({
   }),
 });
 
-// Helper to generate 6-digit numeric OTP
+// Helper to generate cryptographically secure 6-digit numeric OTP
 const generate6DigitOtp = (): string => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // crypto.randomInt is CSPRNG-backed — safe for OTP generation
+  return crypto.randomInt(100000, 1000000).toString();
 };
 
 // ─── POST /auth/forgot-password-otp ──────────────────────────────────────────
@@ -471,6 +588,8 @@ export const verifyResetOtp = async (req: Request, res: Response, next: NextFunc
       return next(new AppError('Invalid or expired OTP verification code.', 400));
     }
 
+    // Verify OTP exists and is valid without destroying it prematurely.
+    // The resetPassword endpoint consumes and clears the OTP upon actual password update.
     res.status(200).json({
       status: 'success',
       message: 'OTP code verified successfully.',

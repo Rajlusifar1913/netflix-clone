@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 import { Profile } from '../models/Profile.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import { AuthenticatedRequest } from '../middlewares/auth.js';
@@ -73,7 +74,8 @@ export const createProfile = async (req: AuthenticatedRequest, res: Response, ne
       avatar: avatar || 'linear-gradient(135deg,#0072d2,#62d5ff)',
       face: face || name.charAt(0).toUpperCase(),
       isKids: isKids ?? false,
-      pin,
+      // MF-7: Hash PIN before storing so it's not stored as plaintext
+      pin: pin ? await bcrypt.hash(pin, 10) : undefined,
     });
 
     res.status(201).json({ status: 'success', data: { profile } });
@@ -96,7 +98,8 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response, ne
     if (avatar !== undefined) profile.avatar = avatar;
     if (face !== undefined) profile.face = face;
     if (isKids !== undefined) profile.isKids = isKids;
-    if (pin !== undefined) profile.pin = pin;
+    // MF-7: Hash updated PIN before saving
+    if (pin !== undefined) profile.pin = await bcrypt.hash(pin, 10);
 
     await profile.save();
     res.status(200).json({ status: 'success', data: { profile } });
@@ -213,6 +216,49 @@ export const updateWatchProgress = async (req: AuthenticatedRequest, res: Respon
 
     await profile.save();
     res.status(200).json({ status: 'success', data: { watchHistory: profile.watchHistory } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── GET /:profileId/history ──────────────────────────────────────────────────────
+// WF-4: Retrieve watch history for a profile
+export const getWatchHistory = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { profileId } = req.params;
+    const profile = await Profile.findOne({ _id: profileId, user: req.user!.id });
+    if (!profile) {
+      return next(new AppError('Profile not found', 404));
+    }
+
+    res.status(200).json({ status: 'success', data: { watchHistory: profile.watchHistory } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── POST /:profileId/verify-pin ─────────────────────────────────────────────────────
+// MF-7: Verify a hashed PIN for profile unlock
+export const verifyProfilePin = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { profileId } = req.params;
+    const { pin } = req.body as { pin: string };
+
+    if (!pin) return next(new AppError('PIN is required.', 400));
+
+    const profile = await Profile.findOne({ _id: profileId, user: req.user!.id });
+    if (!profile) return next(new AppError('Profile not found', 404));
+
+    if (!profile.pin) {
+      // No PIN set on this profile — unlock succeeds
+      res.status(200).json({ status: 'success', message: 'PIN verified.' });
+      return;
+    }
+
+    const match = await bcrypt.compare(pin, profile.pin);
+    if (!match) return next(new AppError('Incorrect PIN.', 401));
+
+    res.status(200).json({ status: 'success', message: 'PIN verified.' });
   } catch (error) {
     next(error);
   }

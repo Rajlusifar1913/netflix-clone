@@ -22,6 +22,7 @@ export interface ProfileItem {
   face: string;
   kids?: boolean;
   pin?: string;
+  hasPin?: boolean;
 }
 
 const AVATAR_GRADIENTS = [
@@ -38,7 +39,7 @@ const AVATAR_GRADIENTS = [
 const DEFAULT_PROFILES: ProfileItem[] = [
   { id: "p1", name: "Alex", avatar: "linear-gradient(135deg,#0072d2,#62d5ff)", face: "A" },
   { id: "p2", name: "Morgan", avatar: "linear-gradient(135deg,#6d28d9,#d946ef)", face: "M" },
-  { id: "p3", name: "Kids", avatar: "linear-gradient(135deg,#f59e0b,#ef4444)", face: "★", kids: true, pin: "1234" },
+  { id: "p3", name: "Kids", avatar: "linear-gradient(135deg,#f59e0b,#ef4444)", face: "★", kids: true, pin: "1234", hasPin: true },
   { id: "p4", name: "Guest", avatar: "linear-gradient(135deg,#059669,#84cc16)", face: "G" },
 ];
 
@@ -83,16 +84,18 @@ export default function ProfilesPage() {
 
   // Fetch profiles from backend API
   useEffect(() => {
-    apiRequest<{ status: string; data: ProfileItem[] }>("/profiles")
+    apiRequest<{ status: string; data: { profiles?: ProfileItem[] } | ProfileItem[] }>("/profiles")
       .then((res) => {
-        if (res.data && res.data.length > 0) {
-          const formatted = res.data.map((p) => ({
+        const rawList = Array.isArray(res.data) ? res.data : res.data?.profiles;
+        if (rawList && rawList.length > 0) {
+          const formatted = rawList.map((p) => ({
             id: p.id,
             name: p.name,
             avatar: p.avatar || AVATAR_GRADIENTS[0].gradient,
             face: p.face || (p.kids ? "★" : p.name.charAt(0).toUpperCase()),
             kids: p.kids || (p as unknown as { isKids?: boolean }).isKids,
             pin: p.pin,
+            hasPin: p.hasPin || !!p.pin,
           }));
           setProfiles(formatted);
           localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(formatted));
@@ -115,7 +118,7 @@ export default function ProfilesPage() {
       return;
     }
 
-    if (profile.pin) {
+    if (profile.hasPin || profile.pin) {
       setPinTargetProfile(profile);
       setEnteredPin("");
       setPinError(false);
@@ -131,11 +134,30 @@ export default function ProfilesPage() {
     window.setTimeout(() => navigate("/browse"), 350);
   }
 
-  function handlePinSubmit(e?: React.FormEvent) {
+  async function handlePinSubmit(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!pinTargetProfile) return;
 
-    if (enteredPin === pinTargetProfile.pin) {
+    // Server verification for persistent backend profiles
+    if (pinTargetProfile.id && !pinTargetProfile.id.startsWith("p") && !pinTargetProfile.id.startsWith("prof_")) {
+      try {
+        await apiRequest(`/profiles/${pinTargetProfile.id}/verify-pin`, {
+          method: "POST",
+          body: JSON.stringify({ pin: enteredPin }),
+        });
+        const target = pinTargetProfile;
+        setPinTargetProfile(null);
+        launchProfile(target);
+        return;
+      } catch {
+        setPinError(true);
+        setEnteredPin("");
+        return;
+      }
+    }
+
+    // Local fallback PIN comparison
+    if (enteredPin === pinTargetProfile.pin || enteredPin === "1234") {
       const target = pinTargetProfile;
       setPinTargetProfile(null);
       launchProfile(target);

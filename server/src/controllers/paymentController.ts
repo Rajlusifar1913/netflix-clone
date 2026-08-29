@@ -496,16 +496,22 @@ export const getInvoices = async (req: AuthenticatedRequest, res: Response, next
           id: inv.number || inv.id,
           date: new Date(inv.created * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           description: `Streamly ${user.subscription.planName || 'Premium'} Plan`,
-          amount: `₹${(inv.amount_paid / 100).toLocaleString('en-IN')}`,
+          // BUG-3: Use USD ($) consistently — Stripe charges are in USD
+          amount: `$${(inv.amount_paid / 100).toFixed(2)}`,
           status: inv.status === 'paid' ? 'Paid' : (inv.status || 'Pending'),
           card: `${user.subscription.cardBrand.toUpperCase()} •••• ${user.subscription.cardLast4}`,
         }));
       } catch { /* fallback below */ }
     }
 
-    // Default billing history fallback
+    // BUG-3: Default billing history fallback uses consistent USD ($) amounts matching PLAN_SPECS
     if (invoicesList.length === 0) {
       const now = new Date();
+      const planAmount = user.subscription?.planId === 'mobile'
+        ? '$3.99'
+        : user.subscription?.planId === 'standard'
+          ? '$9.99'
+          : '$15.99';
       for (let i = 0; i < 5; i++) {
         const d = new Date(now);
         d.setMonth(d.getMonth() - i);
@@ -513,7 +519,7 @@ export const getInvoices = async (req: AuthenticatedRequest, res: Response, next
           id: `INV-2026-00${8 - i}`,
           date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           description: `Streamly ${user.subscription?.planName || 'Premium'} Plan`,
-          amount: `₹${user.subscription?.planId === 'mobile' ? 149 : user.subscription?.planId === 'standard' ? 499 : 649}`,
+          amount: planAmount,
           status: 'Paid',
           card: `${(user.subscription?.cardBrand || 'Visa').toUpperCase()} •••• ${user.subscription?.cardLast4 || '4242'}`,
         });
@@ -526,3 +532,41 @@ export const getInvoices = async (req: AuthenticatedRequest, res: Response, next
   }
 };
 
+// ─── POST /payments/cancel-subscription ──────────────────────────────────────────────
+// Schedules subscription to cancel at the end of the current billing period.
+// Sets cancelAtPeriodEnd=true on Stripe and reflects status in DB.
+export const cancelSubscription = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!req.user) return next(new AppError('User not authenticated.', 401));
+
+    const user = await User.findById(req.user.id);
+    if (!user) return next(new AppError('User not found.', 404));
+
+    if (user.subscription?.status !== 'active') {
+      return next(new AppError('No active subscription to cancel.', 400));
+    }
+
+    // Try to cancel via Stripe if subscription ID is available
+    if (stripe && user.subscription?.stripeSubscriptionId) {
+      try {
+        await stripe.subscriptions.update(user.subscription.stripeSubscriptionId, {
+          cancel_at_period_end: true,
+        });
+      } catch (stripeErr) {
+        console.error('⚠️  Stripe cancel error:', stripeErr);
+        // Fall through — update local DB regardless
+      }
+    }
+
+    user.subscription.cancelAtPeriodEnd = true;
+    await user.save();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Your subscription has been scheduled for cancellation at the end of the current billing period.',
+      data: { subscription: user.subscription },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

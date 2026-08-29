@@ -14,7 +14,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { apiRequest, setStoredToken, getStoredToken } from "./api";
+import { apiRequest, setSessionFlag, hasSession } from "./api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,13 +186,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const initialSession = getSession();
   const [state, setState] = useState<SessionState>({
     data: initialSession,
-    status: initialSession ? "authenticated" : getStoredToken() ? "loading" : "unauthenticated",
+    // SEC-1: Use hasSession() flag (boolean localStorage hint) instead of raw token check
+    status: initialSession ? "authenticated" : hasSession() ? "loading" : "unauthenticated",
   });
 
   const refresh = useCallback(async () => {
-    // Try backend check first if token exists
-    const token = getStoredToken();
-    if (token) {
+    // Try backend /auth/me check if we have a session indicator
+    if (hasSession()) {
       try {
         const res = await apiRequest<{
           data: { user: { id: string; name: string; email: string; avatar?: string } };
@@ -210,6 +210,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return;
       } catch {
         // Token invalid or server offline — fall through to session/local storage
+        setSessionFlag(false);
       }
     }
 
@@ -247,11 +248,9 @@ export function useSession(): SessionContextValue {
   return useContext(SessionContext);
 }
 
-// ─── Auth actions ─────────────────────────────────────────────────────────────
-
 export type SignInResult =
   | { ok: true; error: null }
-  | { ok: false; error: string };
+  | { ok: false; error: string; requiresVerification?: boolean; email?: string };
 
 /**
  * signIn("credentials", { email, password }) — email/password auth
@@ -288,7 +287,8 @@ export async function signIn(
         body: JSON.stringify({ idToken }),
       });
 
-      setStoredToken(res.token);
+      // SEC-1: setSessionFlag marks that the httpOnly cookie session is active
+      setSessionFlag(true);
       const session: Session = {
         user: {
           id: res.data.user.id,
@@ -334,7 +334,7 @@ export async function signIn(
       body: JSON.stringify({ email, password }),
     });
 
-    setStoredToken(res.token);
+    setSessionFlag(true);
     const session: Session = {
       user: {
         id: res.data.user.id,
@@ -348,13 +348,15 @@ export async function signIn(
     window.dispatchEvent(new Event("streamly:session-change"));
     return { ok: true, error: null };
   } catch (backendError) {
-    // If explicit invalid credentials error from backend, return it
-    if (
-      backendError instanceof Error &&
-      backendError.message.includes("Invalid email or password")
-    ) {
-      return { ok: false, error: backendError.message };
+    if (backendError instanceof Error) {
+      if (backendError.message.toLowerCase().includes("verify your email")) {
+        return { ok: false, error: backendError.message, requiresVerification: true, email };
+      }
+      if (backendError.message.includes("Invalid email or password")) {
+        return { ok: false, error: backendError.message };
+      }
     }
+    // For other backend errors (server down etc), fall through to local fallback
   }
 
   // 2. Local Fallback Auth
@@ -381,24 +383,23 @@ export async function signIn(
 }
 
 /**
- * registerUser — creates a new account via backend or localStorage fallback.
+ * verifyEmailOtp — verifies 6-digit registration OTP code and logs user in
  */
-export async function registerUser(
-  name: string,
+export async function verifyEmailOtp(
   email: string,
-  password: string
-): Promise<string | null> {
-  // 1. Try Backend Registration
+  otp: string
+): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await apiRequest<{
-      token: string;
+      status: string;
+      message: string;
       data: { user: { id: string; name: string; email: string; avatar?: string } };
-    }>("/auth/register", {
+    }>("/auth/verify-email", {
       method: "POST",
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({ email, otp }),
     });
 
-    setStoredToken(res.token);
+    setSessionFlag(true);
     const session: Session = {
       user: {
         id: res.data.user.id,
@@ -409,29 +410,79 @@ export async function registerUser(
     };
     saveSession(session);
     window.dispatchEvent(new Event("streamly:session-change"));
-    return null;
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Verification failed. Invalid or expired OTP.",
+    };
+  }
+}
+
+/**
+ * resendVerificationEmailOtp — triggers fresh 6-digit OTP code dispatch
+ */
+export async function resendVerificationEmailOtp(
+  email: string
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+  try {
+    const res = await apiRequest<{ message: string }>("/auth/resend-verification-otp", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+    return { ok: true, message: res.message || "A new 6-digit OTP code has been sent." };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to resend verification OTP.",
+    };
+  }
+}
+
+/**
+ * registerUser — creates a new account via backend or localStorage fallback.
+ */
+export async function registerUser(
+  name: string,
+  email: string,
+  password: string
+): Promise<{ ok: boolean; requiresVerification?: boolean; email?: string; error?: string }> {
+  // 1. Try Backend Registration
+  try {
+    const res = await apiRequest<{
+      status: string;
+      message: string;
+      data: { email: string; requiresVerification: boolean };
+    }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ name, email, password }),
+    });
+
+    if (res?.data?.requiresVerification) {
+      return { ok: true, requiresVerification: true, email: res.data.email };
+    }
+    return { ok: true };
   } catch (err) {
     if (err instanceof Error && err.message.includes("already exists")) {
-      return err.message;
+      return { ok: false, error: err.message };
     }
+
+    // 2. Local Fallback Registration
+    const users = getUsers();
+    const normalEmail = email.toLowerCase().trim();
+    if (users.some((u) => u.email === normalEmail)) {
+      return { ok: false, error: "An account with this email already exists." };
+    }
+
+    const newUser: StoredUser = {
+      id: uuid(),
+      name: name.trim(),
+      email: normalEmail,
+      passwordHash: encode(password),
+    };
+    saveUsers([...users, newUser]);
+    return { ok: true };
   }
-
-  // 2. Local Fallback Registration
-  const users = getUsers();
-  const normalEmail = email.toLowerCase().trim();
-
-  if (users.some((u) => u.email === normalEmail)) {
-    return "An account with this email already exists.";
-  }
-
-  const newUser: StoredUser = {
-    id: uuid(),
-    name: name.trim(),
-    email: normalEmail,
-    passwordHash: encode(password),
-  };
-  saveUsers([...users, newUser]);
-  return null;
 }
 
 /**
@@ -443,7 +494,8 @@ export async function signOut(options?: { callbackUrl?: string }) {
   } catch {
     // Ignore server error on logout
   }
-  setStoredToken(null);
+  // SEC-1: Clear session indicator (not a token — there's nothing sensitive to clear)
+  setSessionFlag(false);
   saveSession(null);
   window.dispatchEvent(new Event("streamly:session-change"));
   window.location.href = options?.callbackUrl ?? "/";

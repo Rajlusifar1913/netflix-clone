@@ -592,13 +592,13 @@ export default function AdminPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const handleChangePassword = (e: FormEvent) => {
+  const handleChangePassword = async (e: FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       showToast("New passwords do not match.", "error");
       return;
     }
-    const res = updateAdminPassword(oldPassword, newPassword);
+    const res = await updateAdminPassword(oldPassword, newPassword);
     if (res.ok) {
       showToast("Admin password updated successfully!");
       setOldPassword("");

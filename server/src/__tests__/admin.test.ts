@@ -49,8 +49,8 @@ describe('Admin Portal Endpoints', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('success');
-    expect(res.body.data.analytics.totalUsers).toBeDefined();
-    expect(res.body.data.analytics.monthlyRecurringRevenue).toBeDefined();
+    expect(res.body.data.summary.totalUsers).toBeDefined();
+    expect(res.body.data.summary.totalMRR).toBeDefined();
   }, 15000);
 
   it('should fetch managed admin user list', async () => {

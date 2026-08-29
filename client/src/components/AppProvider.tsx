@@ -95,6 +95,51 @@ function AppStateProvider({ children }: { children: ReactNode }) {
     if (savedHistory) setWatchHistory(JSON.parse(savedHistory) as WatchHistoryEntry[]);
   }, []);
 
+  // Fetch live server-stored myList & watchHistory when switching active profile
+  useEffect(() => {
+    if (!profile?.id || profile.id.startsWith("p") || profile.id.startsWith("prof_")) return;
+
+    apiRequest<{ data: { myList: Array<{ mediaId: number }> } }>(`/profiles/${profile.id}/mylist`)
+      .then((res) => {
+        if (res?.data?.myList) {
+          const ids = res.data.myList.map((item) => item.mediaId);
+          setMyList(ids);
+          localStorage.setItem("streamly-list", JSON.stringify(ids));
+        }
+      })
+      .catch(() => { /* keep local fallback */ });
+
+    apiRequest<{
+      data: {
+        watchHistory: Array<{
+          mediaId: number;
+          title: string;
+          progress: number;
+          backdropPath: string | null;
+          posterPath: string | null;
+          mediaType?: string;
+          watchedAt: string;
+        }>;
+      };
+    }>(`/profiles/${profile.id}/history`)
+      .then((res) => {
+        if (res?.data?.watchHistory && res.data.watchHistory.length > 0) {
+          const entries: WatchHistoryEntry[] = res.data.watchHistory.map((h) => ({
+            id: h.mediaId,
+            title: h.title,
+            progress: h.progress,
+            backdrop_path: h.backdropPath,
+            poster_path: h.posterPath,
+            media_type: h.mediaType,
+            watchedAt: new Date(h.watchedAt).getTime(),
+          }));
+          setWatchHistory(entries);
+          localStorage.setItem(WATCH_HISTORY_KEY, JSON.stringify(entries));
+        }
+      })
+      .catch(() => { /* keep local fallback */ });
+  }, [profile?.id]);
+
   const setProfile = useCallback((next: ActiveProfile) => {
     setProfileState(next);
     localStorage.setItem("streamly-profile", JSON.stringify(next));

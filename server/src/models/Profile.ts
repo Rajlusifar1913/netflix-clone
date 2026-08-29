@@ -90,7 +90,6 @@ const profileSchema = new Schema<IProfile>(
     },
     pin: {
       type: String,
-      maxlength: 4,
     },
     myList: {
       type: [myListItemSchema],
@@ -107,6 +106,8 @@ const profileSchema = new Schema<IProfile>(
       transform(_doc, ret) {
         const obj = ret as Record<string, unknown>;
         obj.id = obj._id;
+        obj.hasPin = !!obj.pin;
+        delete obj.pin; // Do not expose bcrypt PIN hash over API
         delete obj._id;
         delete obj.__v;
         return obj;

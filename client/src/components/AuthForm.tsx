@@ -4,6 +4,8 @@ import {
   getProviders,
   registerUser,
   signIn,
+  verifyEmailOtp,
+  resendVerificationEmailOtp,
 } from "@/lib/mockAuth";
 import {
   AlertCircle,
@@ -11,6 +13,8 @@ import {
   Eye,
   EyeOff,
   LoaderCircle,
+  MailCheck,
+  RotateCw,
 } from "lucide-react";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
@@ -26,9 +30,23 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   } | null>(null);
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
 
+  // Email verification state
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+
   useEffect(() => {
     getProviders().then((data) => setGoogleAvailable("google" in data));
   }, []);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,19 +74,37 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     try {
       if (mode === "register") {
         const name = String(data.get("name") ?? "").trim();
-        const error = await registerUser(name, email, password);
-        if (error) throw new Error(error);
+        const regRes = await registerUser(name, email, password);
+        if (!regRes.ok) throw new Error(regRes.error ?? "Registration failed.");
+
+        if (regRes.requiresVerification) {
+          setVerifyingEmail(true);
+          setResendCooldown(60);
+          setMessage({
+            type: "success",
+            text: "Account registered! Please enter the 6-digit OTP code sent to your email.",
+          });
+          return;
+        }
       }
 
       const result = await signIn("credentials", { email, password, redirect: false });
-      if (!result.ok) throw new Error(result.error ?? "Email or password is incorrect.");
+      if (!result.ok) {
+        if (result.requiresVerification) {
+          setVerifyingEmail(true);
+          setResendCooldown(60);
+          setMessage({
+            type: "error",
+            text: "Please verify your email address. A fresh 6-digit OTP code was sent to your email.",
+          });
+          return;
+        }
+        throw new Error(result.error ?? "Email or password is incorrect.");
+      }
 
       setMessage({
         type: "success",
-        text:
-          mode === "register"
-            ? "Account created. Welcome to Streamly!"
-            : "Welcome back!",
+        text: mode === "register" ? "Account created. Welcome to Streamly!" : "Welcome back!",
       });
 
       // Small delay so the success message is visible before navigating
@@ -76,11 +112,60 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     } catch (error) {
       setMessage({
         type: "error",
-        text:
-          error instanceof Error ? error.message : "Something went wrong.",
+        text: error instanceof Error ? error.message : "Something went wrong.",
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (otpCode.length !== 6) {
+      setMessage({ type: "error", text: "Please enter the complete 6-digit verification OTP." });
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+    try {
+      const res = await verifyEmailOtp(email, otpCode);
+      if (!res.ok) throw new Error(res.error ?? "Verification failed.");
+
+      setMessage({
+        type: "success",
+        text: "Email verified successfully! Welcome to Streamly.",
+      });
+      setTimeout(() => navigate("/browse"), 700);
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Invalid verification code.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendOtp() {
+    if (resendCooldown > 0 || isResending) return;
+    setIsResending(true);
+    setMessage(null);
+    try {
+      const res = await resendVerificationEmailOtp(email);
+      if (!res.ok) throw new Error(res.error ?? "Failed to resend OTP.");
+      setResendCooldown(60);
+      setMessage({
+        type: "success",
+        text: res.message || "A fresh 6-digit OTP code has been dispatched to your inbox.",
+      });
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Failed to resend verification OTP.",
+      });
+    } finally {
+      setIsResending(false);
     }
   }
 
@@ -91,10 +176,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     try {
       const result = await signIn("google", { callbackUrl: "/browse" });
       if (!result.ok) {
-        // callbackUrl navigates away on success — only reach here on failure
         setMessage({ type: "error", text: result.error ?? "Google Sign-In failed." });
       }
-      // On success, signIn() does window.location.href = '/browse' — no need to navigate here
     } catch (err) {
       setMessage({
         type: "error",
@@ -103,6 +186,96 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     } finally {
       setGoogleLoading(false);
     }
+  }
+
+  // ── Render OTP Verification Step ──────────────────────────────────────────
+  if (verifyingEmail) {
+    return (
+      <div className="w-full max-w-[450px] rounded-md bg-black/85 px-6 py-9 shadow-2xl backdrop-blur-md sm:px-14 sm:py-12 border border-white/10">
+        <div className="flex flex-col items-center text-center">
+          <div className="grid size-14 place-items-center rounded-2xl bg-red-950/60 border border-red-500/30 text-[#e50914] shadow-lg mb-4">
+            <MailCheck className="size-7" />
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Verify Email</h1>
+          <p className="mt-2 text-xs text-[#aaa] leading-relaxed">
+            We sent a 6-digit verification OTP to <br />
+            <strong className="text-white">{email}</strong>
+          </p>
+        </div>
+
+        {message && (
+          <div
+            role="alert"
+            className={`mt-5 flex items-start gap-2 rounded border px-3 py-2.5 text-xs ${
+              message.type === "error"
+                ? "border-red-500/40 bg-red-950/50 text-red-100"
+                : "border-emerald-500/40 bg-emerald-950/50 text-emerald-100"
+            }`}
+          >
+            {message.type === "error" ? (
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            )}
+            <span>{message.text}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleVerifyOtp} className="mt-6 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#888] mb-2 text-center">
+              Enter 6-Digit OTP Code
+            </label>
+            <input
+              type="text"
+              maxLength={6}
+              pattern="\d{6}"
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+              placeholder="••••••"
+              autoFocus
+              required
+              className="w-full text-center text-2xl tracking-[0.4em] font-mono rounded-xl border border-white/20 bg-black/60 px-4 py-3 text-white outline-none focus:border-[#e50914] focus:ring-2 focus:ring-[#e50914]/20 transition-all"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || otpCode.length !== 6}
+            className="flex w-full items-center justify-center rounded-xl bg-[#e50914] py-3 text-sm font-semibold hover:bg-[#c80710] shadow-md shadow-red-950 disabled:opacity-50 transition-all"
+          >
+            {loading && <LoaderCircle className="mr-2 size-4 animate-spin" />}
+            Verify & Complete Sign Up
+          </button>
+        </form>
+
+        <div className="mt-6 flex flex-col items-center gap-3 border-t border-white/10 pt-4 text-xs text-[#888]">
+          <div className="flex items-center gap-1.5">
+            <span>Didn't receive the OTP?</span>
+            <button
+              type="button"
+              disabled={resendCooldown > 0 || isResending}
+              onClick={handleResendOtp}
+              className="font-semibold text-white hover:text-[#e50914] disabled:opacity-50 transition-colors inline-flex items-center gap-1"
+            >
+              {isResending && <RotateCw className="size-3 animate-spin" />}
+              {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend OTP"}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setVerifyingEmail(false);
+              setMessage(null);
+            }}
+            className="text-[#666] hover:text-white transition-colors"
+          >
+            ← Back to sign in
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -18,11 +18,12 @@ import {
 } from '../controllers/adminController.js';
 import { protect } from '../middlewares/auth.js';
 import { adminOnly } from '../middlewares/adminAuth.js';
+import { authLimiter } from '../middlewares/rateLimiter.js';
 
 const router = Router();
 
-// Public Admin Login
-router.post('/login', adminLogin);
+// Public Admin Login — rate-limited to prevent brute-force attacks (SEC-6)
+router.post('/login', authLimiter, adminLogin);
 
 // Protected Admin-Only Endpoints
 router.use(protect);

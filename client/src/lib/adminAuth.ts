@@ -1,7 +1,17 @@
 /**
  * adminAuth.ts
  * Dedicated client-side authentication and session manager for Streamly Admin Portal.
- * Supports Admin ID + Password login, session persistence, and credential customization.
+ *
+ * SEC-2 FIX: Admin credentials are NO LONGER stored in localStorage.
+ *   - Previously, the admin email + plaintext password were persisted in localStorage.
+ *   - Any XSS script or person with browser access could read them.
+ *   - Now: credentials exist only in-memory during the login flow.
+ *
+ * SEC-3 FIX: The local fallback auth path that generated fake JWT tokens has been REMOVED.
+ *   - Previously, if the backend was unreachable, the app would create a made-up
+ *     `admin_jwt_${Date.now()}` token and grant admin access.
+ *   - This was a security bypass — admin access must ALWAYS require a real server response.
+ *   - Now: if the backend is unreachable, adminLogin returns an error immediately.
  */
 
 export interface AdminUser {
@@ -15,40 +25,8 @@ export interface AdminUser {
 }
 
 const ADMIN_SESSION_KEY = 'streamly_admin_session';
-const ADMIN_CREDENTIALS_KEY = 'streamly_admin_credentials';
 
-import { apiRequest, setStoredToken } from "./api";
-
-// Default Admin Credentials matching backend seed data (server/src/utils/seedData.ts)
-const DEFAULT_CREDENTIALS = {
-  adminId: 'admin',
-  email: 'admin@streamly.com',
-  password: 'AdminPassword123',
-  name: 'Admin User',
-  role: 'super_admin' as const,
-};
-
-interface StoredCredentials {
-  adminId: string;
-  email: string;
-  password: string;
-  name: string;
-  role: 'super_admin' | 'content_manager';
-}
-
-function getStoredCredentials(): StoredCredentials {
-  try {
-    const raw = localStorage.getItem(ADMIN_CREDENTIALS_KEY);
-    if (!raw) {
-      localStorage.setItem(ADMIN_CREDENTIALS_KEY, JSON.stringify(DEFAULT_CREDENTIALS));
-      return DEFAULT_CREDENTIALS;
-    }
-    const parsed = JSON.parse(raw) as StoredCredentials;
-    return parsed;
-  } catch {
-    return DEFAULT_CREDENTIALS;
-  }
-}
+import { apiRequest, setSessionFlag } from "./api";
 
 export function getAdminSession(): AdminUser | null {
   try {
@@ -77,9 +55,8 @@ export async function adminLogin(
   rememberMe = true
 ): Promise<AdminLoginResult> {
   const trimmedId = adminIdInput.trim().toLowerCase();
-  const creds = getStoredCredentials();
 
-  // 1. Try Dedicated Admin Backend Endpoint (/admin/login)
+  // Always try the real backend — no local fallback (SEC-3)
   try {
     const emailToUse = trimmedId.includes('@') ? trimmedId : 'admin@streamly.com';
     const res = await apiRequest<{
@@ -91,7 +68,8 @@ export async function adminLogin(
     });
 
     if (res?.token) {
-      setStoredToken(res.token);
+      // Store token in session flag (the real JWT goes in the httpOnly cookie from the server)
+      setSessionFlag(true);
       const sessionUser: AdminUser = {
         id: res.data?.user?.id || 'admin',
         name: res.data?.user?.name || 'Admin User',
@@ -109,69 +87,42 @@ export async function adminLogin(
       window.dispatchEvent(new Event('streamly:admin-auth-change'));
       return { ok: true, user: sessionUser };
     }
-  } catch {
-    // Fallback to user auth or local admin check below
-  }
 
-  // 2. Local Fallback Authentication
-  const targetId = creds.adminId.toLowerCase();
-  const targetEmail = creds.email.toLowerCase();
-
-  const idMatches = trimmedId === targetId || trimmedId === targetEmail || trimmedId === 'admin' || trimmedId === 'admin@streamly.com';
-  const passwordMatches =
-    passwordInput === creds.password ||
-    passwordInput === 'AdminPassword123' ||
-    passwordInput === 'admin123';
-
-  if (!idMatches || !passwordMatches) {
     return {
       ok: false,
-      error: 'Invalid Admin ID or Password. Please verify your administrator credentials.',
+      error: 'Authentication failed. Please verify your admin credentials.',
+    };
+  } catch (err) {
+    // SEC-3: No fallback to a fake local token — server must be reachable for admin login.
+    if (err instanceof Error && err.message.includes('Invalid')) {
+      return { ok: false, error: 'Invalid admin credentials. Please try again.' };
+    }
+    return {
+      ok: false,
+      error: 'Unable to connect to the server. Please ensure the backend is running.',
     };
   }
-
-  const sessionUser: AdminUser = {
-    id: creds.adminId,
-    name: creds.name || 'Admin User',
-    email: creds.email || 'admin@streamly.com',
-    role: creds.role || 'super_admin',
-    avatar: 'linear-gradient(135deg,#e50914,#ff3b30)',
-    token: `admin_jwt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    loginAt: new Date().toISOString(),
-  };
-
-  const serialized = JSON.stringify(sessionUser);
-  sessionStorage.setItem(ADMIN_SESSION_KEY, serialized);
-  if (rememberMe) {
-    localStorage.setItem(ADMIN_SESSION_KEY, serialized);
-  } else {
-    localStorage.removeItem(ADMIN_SESSION_KEY);
-  }
-
-  window.dispatchEvent(new Event('streamly:admin-auth-change'));
-  return { ok: true, user: sessionUser };
 }
 
 export function adminLogout(): void {
   sessionStorage.removeItem(ADMIN_SESSION_KEY);
   localStorage.removeItem(ADMIN_SESSION_KEY);
+  setSessionFlag(false);
   window.dispatchEvent(new Event('streamly:admin-auth-change'));
 }
 
-export function updateAdminPassword(oldPassword: string, newPassword: string): { ok: boolean; error?: string } {
-  const creds = getStoredCredentials();
-  if (oldPassword !== creds.password) {
-    return { ok: false, error: 'Current password is incorrect.' };
+export async function updateAdminPassword(oldPassword: string, newPassword: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await apiRequest("/payments/update-credentials", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword: oldPassword, newPassword }),
+    });
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to update admin password.",
+    };
   }
-  if (!newPassword || newPassword.length < 6) {
-    return { ok: false, error: 'New password must be at least 6 characters long.' };
-  }
-
-  const updated: StoredCredentials = { ...creds, password: newPassword };
-  localStorage.setItem(ADMIN_CREDENTIALS_KEY, JSON.stringify(updated));
-  return { ok: true };
 }
 
-export function resetAdminCredentialsToDefault(): void {
-  localStorage.setItem(ADMIN_CREDENTIALS_KEY, JSON.stringify(DEFAULT_CREDENTIALS));
-}

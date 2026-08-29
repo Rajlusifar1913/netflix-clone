@@ -64,6 +64,8 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   },
 ];
 
+import { apiRequest } from "@/lib/api";
+
 export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
   const { data: session } = useSession();
   const { profile, showToast } = useApp();
@@ -84,15 +86,56 @@ export function Navbar({ onSearch }: { onSearch?: (value: string) => void }) {
 
   const unreadCount = notifications.filter((n) => n.unread).length;
 
-  const markAllAsRead = () => {
+  // Fetch live notifications from backend
+  useEffect(() => {
+    apiRequest<{
+      data: {
+        notifications: Array<{
+          id: string;
+          title: string;
+          message: string;
+          isRead: boolean;
+          type: string;
+          link?: string;
+          createdAt: string;
+        }>;
+        unreadCount: number;
+      };
+    }>("/notifications")
+      .then((res) => {
+        if (res?.data?.notifications && res.data.notifications.length > 0) {
+          const formatted: NotificationItem[] = res.data.notifications.map((n) => ({
+            id: n.id,
+            title: n.title,
+            desc: n.message,
+            time: "Recently",
+            unread: !n.isRead,
+            type: (n.type as any) || "release",
+            link: n.link || "/browse",
+          }));
+          setNotifications(formatted);
+        }
+      })
+      .catch(() => { /* keep initial fallback */ });
+  }, [session]);
+
+  const markAllAsRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    try {
+      await apiRequest("/notifications/mark-all-read", { method: "PATCH" });
+    } catch { /* ignore */ }
     showToast("All notifications marked as read", "info");
   };
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
     );
+    if (!id.startsWith("n")) {
+      try {
+        await apiRequest(`/notifications/${id}/read`, { method: "PATCH" });
+      } catch { /* ignore */ }
+    }
   };
 
   useEffect(() => {

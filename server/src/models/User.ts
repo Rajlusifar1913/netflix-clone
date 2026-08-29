@@ -156,7 +156,7 @@ const userSchema = new Schema<IUser>(
     },
     isVerified: {
       type: Boolean,
-      default: true,
+      default: false,
     },
   },
   {

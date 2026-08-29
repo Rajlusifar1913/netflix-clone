@@ -7,6 +7,7 @@ import {
   createCheckoutSession,
   createSetupIntent,
   getInvoices,
+  cancelSubscription,
   changePlanSchema,
   updateCredentialsSchema,
   updatePaymentMethodSchema,
@@ -30,5 +31,8 @@ router.post('/checkout-session', validate(changePlanSchema), createCheckoutSessi
 
 // Creates a Stripe SetupIntent so the frontend can collect card via Stripe.js Elements
 router.post('/create-setup-intent', createSetupIntent);
+
+// MF-3: Cancel subscription — schedules cancellation at end of billing period
+router.post('/cancel-subscription', cancelSubscription);
 
 export default router;

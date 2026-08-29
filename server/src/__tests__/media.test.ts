@@ -35,7 +35,7 @@ describe('Media Catalog & Streaming Endpoints', () => {
     expect(Array.isArray(res.body.data.results)).toBe(true);
   }, 15000);
 
-  it('should handle video stream range request or fallback', async () => {
+  it('should require authentication for video stream endpoint', async () => {
     let media = await Media.findOne();
     if (!media) {
       media = await Media.create({
@@ -47,10 +47,52 @@ describe('Media Catalog & Streaming Endpoints', () => {
       });
     }
 
-    const res = await request(app)
+    // 1. Unauthenticated request should be rejected with 401 (SEC-7)
+    const unauthRes = await request(app)
       .get(`/api/v1/media/stream/${media._id}`)
       .set('Range', 'bytes=0-1024');
 
-    expect([200, 206, 302, 404]).toContain(res.status);
-  }, 15000);
+    expect(unauthRes.status).toBe(401);
+
+    // 2. Register user & verify to get auth token
+    const regEmail = `stream_test_${Date.now()}@example.com`;
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'Stream Tester',
+        email: regEmail,
+        password: 'Password123!',
+      });
+
+    const user = await (await import('../models/User.js')).default.findOne({ email: regEmail });
+    if (user) {
+      user.isVerified = true;
+      await user.save();
+    }
+
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({
+        email: regEmail,
+        password: 'Password123!',
+      });
+
+    const token = loginRes.body.token;
+
+    // 3. Acquire DRM / HMAC signed stream token
+    const tokenRes = await request(app)
+      .get(`/api/v1/media/stream-token/${media._id}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(tokenRes.status).toBe(200);
+    expect(tokenRes.body.data.streamToken).toBeDefined();
+
+    // 4. Authenticated request with token should succeed with redirect (302) or stream (200/206)
+    const authRes = await request(app)
+      .get(`/api/v1/media/stream/${media._id}?token=${tokenRes.body.data.streamToken}`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Range', 'bytes=0-1024');
+
+    expect([200, 206, 302, 404]).toContain(authRes.status);
+  }, 20000);
 });

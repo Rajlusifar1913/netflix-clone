@@ -50,13 +50,9 @@ const DEFAULT_PARENTAL: ParentalSettings = {
   pin: "1234",
 };
 
-const MOCK_INVOICES = [
-  { id: "INV-2026-008", date: "Aug 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
-  { id: "INV-2026-007", date: "Jul 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
-  { id: "INV-2026-006", date: "Jun 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
-  { id: "INV-2026-005", date: "May 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
-  { id: "INV-2026-004", date: "Apr 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
-];
+// BUG-4: Removed MOCK_INVOICES constant — invoices state now initializes as empty []
+// and is populated exclusively from the real /payments/invoices API.
+// Showing fake data to users while the real API loads is misleading.
 
 export default function AccountPage() {
   const navigate = useNavigate();
@@ -174,7 +170,10 @@ export default function AccountPage() {
   const [modalMessage, setModalMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const [invoices, setInvoices] = useState(MOCK_INVOICES);
+  // BUG-4: Start with empty array — populated from real /payments/invoices API response
+  const [invoices, setInvoices] = useState<Array<{ id: string; date: string; description: string; amount: string; status: string; card: string }>>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
+  const [cancelingSubscription, setCancelingSubscription] = useState(false);
 
   useEffect(() => {
     // Fetch live subscription status from API
@@ -187,13 +186,14 @@ export default function AccountPage() {
       });
 
     // Fetch live billing invoices from API
-    apiRequest<{ data: { invoices: typeof MOCK_INVOICES } }>("/payments/invoices")
+    apiRequest<{ data: { invoices: typeof invoices } }>("/payments/invoices")
       .then((res) => {
-        if (res?.data?.invoices && res.data.invoices.length > 0) {
+        if (res?.data?.invoices) {
           setInvoices(res.data.invoices);
         }
       })
-      .catch(() => { /* fallback to mock invoices */ });
+      .catch(() => { /* invoices remain empty — no fake data fallback */ })
+      .finally(() => setInvoicesLoading(false));
   }, []);
 
   async function handlePlanChange(planId: string) {
@@ -257,6 +257,27 @@ export default function AccountPage() {
       setModalMessage(err instanceof Error ? err.message : "Failed to update password.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // MF-3: Cancel subscription handler
+  async function handleCancelSubscription() {
+    if (!window.confirm(
+      "Are you sure you want to cancel your subscription? You will still have access until the end of your current billing period."
+    )) return;
+
+    setCancelingSubscription(true);
+    try {
+      await apiRequest("/payments/cancel-subscription", { method: "POST" });
+      setSubData((prev) => ({
+        ...prev,
+        subscription: { ...prev.subscription, cancelAtPeriodEnd: true },
+      }));
+      showToast("Subscription scheduled for cancellation at end of billing period.", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to cancel subscription.", "error");
+    } finally {
+      setCancelingSubscription(false);
     }
   }
 
@@ -503,12 +524,28 @@ export default function AccountPage() {
               <p className="text-base font-bold text-white">{subData.subscription.planSpecs}</p>
             </div>
 
-            <button
-              onClick={() => setShowPlanModal(true)}
-              className="rounded border border-white/20 bg-[#262626] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#333]"
-            >
-              Change Plan
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowPlanModal(true)}
+                className="rounded border border-white/20 bg-[#262626] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#333]"
+              >
+                Change Plan
+              </button>
+              {/* MF-3: Cancel subscription button */}
+              {!subData.subscription.cancelAtPeriodEnd ? (
+                <button
+                  onClick={handleCancelSubscription}
+                  disabled={cancelingSubscription}
+                  className="rounded border border-red-700/60 bg-transparent px-5 py-2.5 text-xs font-semibold text-red-400 hover:bg-red-950/40 disabled:opacity-50"
+                >
+                  {cancelingSubscription ? "Canceling..." : "Cancel Subscription"}
+                </button>
+              ) : (
+                <span className="rounded border border-yellow-700/50 bg-yellow-950/30 px-4 py-2 text-xs font-semibold text-yellow-400">
+                  Cancels on {formattedDate}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -608,6 +645,17 @@ export default function AccountPage() {
           </div>
 
           <div className="mt-6 overflow-x-auto">
+            {invoicesLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-10 rounded bg-white/5 animate-pulse" />
+                ))}
+              </div>
+            ) : invoices.length === 0 ? (
+              <p className="py-8 text-center text-sm text-[#666]">
+                No billing history available yet.
+              </p>
+            ) : (
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-white/10 text-[#888] font-semibold uppercase tracking-wider">
@@ -648,6 +696,7 @@ export default function AccountPage() {
                 ))}
               </tbody>
             </table>
+            )}
           </div>
         </div>
       </section>

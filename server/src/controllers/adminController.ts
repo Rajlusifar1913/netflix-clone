@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { Types } from 'mongoose';
 import { User } from '../models/User.js';
 import { Media } from '../models/Media.js';
 import { Plan } from '../models/Plan.js';
@@ -7,6 +8,16 @@ import { Profile } from '../models/Profile.js';
 import { env } from '../config/env.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import { AuthenticatedRequest } from '../middlewares/auth.js';
+
+// Helper: Validate MongoDB ObjectId and call next(AppError) if invalid
+const getValidObjectId = (id: string | string[] | undefined, label: string, next: NextFunction): string | null => {
+  const idStr = Array.isArray(id) ? id[0] : id;
+  if (!idStr || !Types.ObjectId.isValid(idStr)) {
+    next(new AppError(`Invalid ${label} ID format.`, 400));
+    return null;
+  }
+  return idStr;
+};
 
 // ─── Admin Login ─────────────────────────────────────────────────────────────
 export const adminLogin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -139,8 +150,24 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
 
 export const updateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
-    const user = await User.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+    const userId = getValidObjectId(req.params.id, 'user', next);
+    if (!userId) return;
+
+    // SEC-8: Allowlist fields to prevent mass assignment of sensitive fields
+    // (e.g., password, refreshTokens, role escalation, otpCode injection)
+    const { name, email, role, isVerified } = req.body as {
+      name?: string;
+      email?: string;
+      role?: 'user' | 'admin';
+      isVerified?: boolean;
+    };
+    const safeUpdate: Record<string, unknown> = {};
+    if (name !== undefined) safeUpdate.name = name;
+    if (email !== undefined) safeUpdate.email = email.toLowerCase().trim();
+    if (role !== undefined && ['user', 'admin'].includes(role)) safeUpdate.role = role;
+    if (isVerified !== undefined) safeUpdate.isVerified = isVerified;
+
+    const user = await User.findByIdAndUpdate(userId, safeUpdate, { new: true, runValidators: true });
     if (!user) return next(new AppError('User not found', 404));
     res.status(200).json({ status: 'success', data: user });
   } catch (error) {
@@ -150,10 +177,12 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
 
 export const deleteUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
-    const user = await User.findByIdAndDelete(id);
+    const userId = getValidObjectId(req.params.id, 'user', next);
+    if (!userId) return;
+
+    const user = await User.findByIdAndDelete(userId);
     if (!user) return next(new AppError('User not found', 404));
-    await Profile.deleteMany({ user: id });
+    await Profile.deleteMany({ user: userId });
     res.status(200).json({ status: 'success', message: 'User and profiles deleted.' });
   } catch (error) {
     next(error);
@@ -162,10 +191,12 @@ export const deleteUser = async (req: Request, res: Response, next: NextFunction
 
 export const updateUserSubscription = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
+    const userId = getValidObjectId(req.params.id, 'user', next);
+    if (!userId) return;
+
     const { planId, status, extendDays } = req.body;
 
-    const user = await User.findById(id);
+    const user = await User.findById(userId);
     if (!user) return next(new AppError('User not found', 404));
 
     if (planId) user.subscription.planId = planId;

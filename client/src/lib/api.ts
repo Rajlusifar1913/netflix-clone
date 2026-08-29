@@ -1,30 +1,43 @@
 /**
  * api.ts - Production API Client for Streamly Backend Server
- * Includes silent token-refresh on 401 responses.
+ *
+ * SEC-1 FIX: JWT access tokens are NO LONGER stored in localStorage.
+ * Doing so exposed them to XSS attacks — any injected script could steal the token.
+ *
+ * The server sets an httpOnly cookie (`token`) on every login/register response.
+ * All requests use `credentials: 'include'` so the browser automatically attaches
+ * that cookie. The server's auth middleware reads from the cookie as primary source.
+ *
+ * We keep a lightweight non-sensitive `streamly_has_session` boolean in localStorage
+ * only as a hint to decide whether to attempt /auth/me on page load.
+ * This flag contains NO secrets and losing it just means an extra /me call.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
-export function getStoredToken(): string | null {
-  return localStorage.getItem('streamly_token');
+// ── Session indicator (non-sensitive boolean hint, NOT a token) ─────────────
+const SESSION_FLAG_KEY = 'streamly_has_session';
+
+export function hasSession(): boolean {
+  return localStorage.getItem(SESSION_FLAG_KEY) === 'true';
 }
 
-export function setStoredToken(token: string | null): void {
-  if (token) {
-    localStorage.setItem('streamly_token', token);
+export function setSessionFlag(active: boolean): void {
+  if (active) {
+    localStorage.setItem(SESSION_FLAG_KEY, 'true');
   } else {
-    localStorage.removeItem('streamly_token');
+    localStorage.removeItem(SESSION_FLAG_KEY);
   }
 }
 
 // Track in-flight refresh to prevent parallel refresh calls
-let refreshPromise: Promise<string | null> | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 
 /**
  * Attempts to silently refresh the access token using the httpOnly
- * refreshToken cookie. Returns the new access token, or null on failure.
+ * refreshToken cookie. Returns true if refresh succeeded.
  */
-async function attemptTokenRefresh(): Promise<string | null> {
+async function attemptTokenRefresh(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
@@ -35,16 +48,17 @@ async function attemptTokenRefresh(): Promise<string | null> {
         headers: { 'Content-Type': 'application/json' },
       });
 
-      if (!response.ok) return null;
-
-      const data = (await response.json()) as { token?: string };
-      if (data.token) {
-        setStoredToken(data.token);
-        return data.token;
+      if (!response.ok) {
+        setSessionFlag(false);
+        return false;
       }
-      return null;
+
+      // Refresh succeeded — the server has set a new httpOnly access token cookie
+      setSessionFlag(true);
+      return true;
     } catch {
-      return null;
+      setSessionFlag(false);
+      return false;
     } finally {
       refreshPromise = null;
     }
@@ -55,23 +69,20 @@ async function attemptTokenRefresh(): Promise<string | null> {
 
 /**
  * Core API request function with automatic silent token refresh on 401.
+ * Relies entirely on httpOnly cookies — no Authorization header needed.
  */
 export async function apiRequest<T = unknown>(
   endpoint: string,
   options: RequestInit = {},
   retrying = false
 ): Promise<T> {
-  const token = getStoredToken();
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
+  // SEC-1: No Authorization header — the httpOnly cookie is sent automatically
+  // by the browser when credentials: 'include' is set.
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
@@ -80,15 +91,14 @@ export async function apiRequest<T = unknown>(
 
   // On 401 — attempt silent refresh once, then retry
   if (response.status === 401 && !retrying) {
-    const newToken = await attemptTokenRefresh();
+    const refreshed = await attemptTokenRefresh();
 
-    if (newToken) {
-      // Retry original request with the refreshed token
+    if (refreshed) {
       return apiRequest<T>(endpoint, options, true);
     }
 
-    // Refresh failed — clear session and redirect to login
-    setStoredToken(null);
+    // Refresh failed — clear session flag and redirect to login
+    setSessionFlag(false);
     sessionStorage.removeItem('streamly_session');
     window.dispatchEvent(new Event('streamly:session-change'));
     if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {

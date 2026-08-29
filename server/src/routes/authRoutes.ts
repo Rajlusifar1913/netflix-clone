@@ -6,6 +6,8 @@ import {
   logout,
   refreshTokenHandler,
   getMe,
+  verifyEmail,
+  resendVerificationOtp,
   forgotPasswordOtp,
   verifyResetOtp,
   resetPassword,
@@ -28,6 +30,10 @@ router.post('/google', authLimiter, validate(googleLoginSchema), googleLogin);
 router.post('/logout', logout);
 router.post('/refresh', refreshTokenHandler);
 router.get('/me', protect, getMe);
+
+// Registration Email Verification
+router.post('/verify-email', authLimiter, validate(verifyOtpSchema), verifyEmail);
+router.post('/resend-verification-otp', authLimiter, validate(otpRequestSchema), resendVerificationOtp);
 
 // OTP & Password Recovery
 router.post('/forgot-password-otp', authLimiter, validate(otpRequestSchema), forgotPasswordOtp);

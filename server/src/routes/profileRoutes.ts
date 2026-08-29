@@ -7,6 +7,8 @@ import {
   toggleMyList,
   getMyList,
   updateWatchProgress,
+  getWatchHistory,
+  verifyProfilePin,
   createProfileSchema,
   updateProfileSchema,
   myListSchema,
@@ -32,8 +34,13 @@ router
   .get(getMyList)
   .post(validate(myListSchema), toggleMyList);
 
+// WF-4: GET watch history for a profile
 router
   .route('/:profileId/history')
+  .get(getWatchHistory)
   .post(validate(watchHistorySchema), updateWatchProgress);
+
+// MF-7: PIN verification endpoint for locked profiles
+router.post('/:profileId/verify-pin', verifyProfilePin);
 
 export default router;

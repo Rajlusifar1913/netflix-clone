@@ -162,14 +162,40 @@ export default function WatchPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasTrackedViewRef = useRef<boolean>(false);
+  const [signedStreamUrl, setSignedStreamUrl] = useState<string | null>(null);
+
+  // Fetch DRM signed stream URL from server
+  useEffect(() => {
+    if (!mediaId) return;
+    const fetchSignedToken = async () => {
+      try {
+        const { apiRequest } = await import("@/lib/api");
+        const res = await apiRequest<{
+          status: string;
+          data: { streamToken: string; streamUrl: string };
+        }>(`/media/stream-token/${mediaId}`);
+
+        if (res?.data?.streamUrl) {
+          const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+          const fullStreamUrl = `${baseUrl.replace(/\/api\/v1$/, "")}${res.data.streamUrl}`;
+          setSignedStreamUrl(fullStreamUrl);
+        }
+      } catch {
+        // Keep fallback sources if server stream token endpoint is unreachable
+      }
+    };
+
+    fetchSignedToken();
+  }, [mediaId]);
 
   const customCatalogItem = getVideoById(mediaId);
   const sources = useMemo(() => {
-    if (customCatalogItem?.videoUrl) {
-      return [customCatalogItem.videoUrl, ...(SAMPLE_VIDEOS[mediaId] ?? DEFAULT_SOURCES)];
-    }
-    return SAMPLE_VIDEOS[mediaId] ?? DEFAULT_SOURCES;
-  }, [mediaId, customCatalogItem]);
+    const list: string[] = [];
+    if (signedStreamUrl) list.push(signedStreamUrl);
+    if (customCatalogItem?.videoUrl) list.push(customCatalogItem.videoUrl);
+    const fallbacks = SAMPLE_VIDEOS[mediaId] ?? DEFAULT_SOURCES;
+    return list.length > 0 ? [...list, ...fallbacks] : fallbacks;
+  }, [mediaId, customCatalogItem, signedStreamUrl]);
 
   const [sourceIndex, setSourceIndex] = useState(0);
 

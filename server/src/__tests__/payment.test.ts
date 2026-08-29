@@ -14,15 +14,29 @@ describe('Payments & Invoices Endpoints', () => {
       await mongoose.connect(mongoUri);
     }
 
-    const regRes = await request(app)
+    const payEmail = `pay_${Date.now()}@example.com`;
+    await request(app)
       .post('/api/v1/auth/register')
       .send({
         name: 'Pay Tester',
-        email: `pay_${Date.now()}@example.com`,
+        email: payEmail,
         password: 'Password123!',
       });
 
-    userToken = regRes.body.token;
+    const user = await User.findOne({ email: payEmail });
+    if (user) {
+      user.isVerified = true;
+      await user.save();
+    }
+
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({
+        email: payEmail,
+        password: 'Password123!',
+      });
+
+    userToken = loginRes.body.token;
   }, 30000);
 
   afterAll(async () => {

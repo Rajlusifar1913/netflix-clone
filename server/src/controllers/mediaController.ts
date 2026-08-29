@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { Media, IMedia } from '../models/Media.js';
 import { env } from '../config/env.js';
+import { AppError } from '../middlewares/errorHandler.js';
+import { AuthenticatedRequest } from '../middlewares/auth.js';
 
 // Fallback catalog in case TMDB or MongoDB is empty
 export const FALLBACK_CATALOGUE = [
@@ -47,15 +49,25 @@ async function fetchFromTMDB(endpoint: string): Promise<Record<string, unknown>[
   }
 }
 
-export const getBrowseData = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getBrowseData = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    // 1. Try to fetch from DB
-    let dbItems = await Media.find().lean();
+    // WF-5: Support ?type=movie or ?type=tv filtering
+    const mediaTypeFilter = req.query.type as string | undefined;
+    const dbQuery = mediaTypeFilter && ['movie', 'tv'].includes(mediaTypeFilter)
+      ? { mediaType: mediaTypeFilter }
+      : {};
 
-    // If DB is empty, seed with fallback catalogue
-    if (dbItems.length === 0) {
-      await Media.insertMany(FALLBACK_CATALOGUE);
-      dbItems = await Media.find().lean();
+    // 1. Try to fetch from DB
+    let dbItems = await Media.find(dbQuery).lean();
+
+    // If DB is empty, seed with fallback catalogue (BUG-5: ordered:false prevents E11000 race condition)
+    if (dbItems.length === 0 && !mediaTypeFilter) {
+      try {
+        await Media.insertMany(FALLBACK_CATALOGUE, { ordered: false });
+      } catch {
+        // E11000 duplicate key — another concurrent request already seeded, safe to ignore
+      }
+      dbItems = await Media.find(dbQuery).lean();
     }
 
     // Check if TMDB API is available for fresh live data
@@ -121,6 +133,7 @@ export const getBrowseData = async (_req: Request, res: Response, next: NextFunc
   }
 };
 
+// ─── GET /media/search ───────────────────────────────────────────────────────
 export const searchMedia = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const rawQ = req.query.q;
@@ -152,8 +165,9 @@ export const searchMedia = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    // DB Regex Search Fallback
-    const regex = new RegExp(query, 'i');
+    // SEC-4: Escape user input before building regex to prevent ReDoS attacks
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escapedQuery, 'i');
     const items = await Media.find({
       $or: [{ title: regex }, { overview: regex }, { genres: regex }],
     }).lean();
@@ -200,13 +214,63 @@ export const getMediaDetails = async (req: Request, res: Response, next: NextFun
   }
 };
 
+import { createSignedStreamToken, verifyStreamToken } from '../utils/streamSigner.js';
+
+// ─── GET /media/stream-token/:id ─────────────────────────────────────────────
+// Generates a short-lived DRM / HMAC signed stream token bound to user and media ID
+export const getStreamToken = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) return next(new AppError('Media ID is required.', 400));
+
+    if (!req.user) {
+      return next(new AppError('Authentication required to generate stream playback token.', 401));
+    }
+
+    const { token, expiresAt } = createSignedStreamToken(id, req.user.id, 7200);
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        streamToken: token,
+        expiresAt,
+        streamUrl: `/api/v1/media/stream/${id}?token=${token}`,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ─── GET /media/stream/:id ───────────────────────────────────────────────────
 // Express Partial Content (HTTP 206) Range Request video streaming controller
-export const streamMedia = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const streamMedia = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
     const numericId = parseInt(String(id), 10);
-    const media = await Media.findOne({ tmdbId: numericId });
+
+    // DRM / Stream Token validation if token query param is provided
+    const tokenQuery = req.query.token as string | undefined;
+    if (tokenQuery) {
+      const verified = verifyStreamToken(tokenQuery, id);
+      if (!verified) {
+        return next(new AppError('Stream playback token is invalid, expired, or tampered with.', 403));
+      }
+    }
+
+    // BUG-1: Try tmdbId first (numeric), then fallback to MongoDB _id (ObjectId string)
+    let media = null;
+    if (!isNaN(numericId)) {
+      media = await Media.findOne({ tmdbId: numericId });
+    }
+    if (!media && id) {
+      const { Types } = await import('mongoose');
+      if (Types.ObjectId.isValid(id)) {
+        media = await Media.findById(id);
+      }
+    }
 
     const streamUrl =
       media?.videoUrl ||
@@ -223,4 +287,3 @@ export const streamMedia = async (req: Request, res: Response, next: NextFunctio
     next(error);
   }
 };
-
