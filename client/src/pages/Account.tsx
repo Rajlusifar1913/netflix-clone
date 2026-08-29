@@ -613,10 +613,12 @@ export default function AccountPage() {
                 style={{ background: profile?.avatar || "linear-gradient(135deg,#0072d2,#62d5ff)" }}
                 className="grid size-14 place-items-center rounded-xl bg-blue-600 text-xl font-black text-white shadow-lg"
               >
-                {profile?.name?.charAt(0) || "A"}
+                {(profile?.name || session?.user?.name || "P").charAt(0).toUpperCase()}
               </div>
               <div>
-                <p className="text-lg font-bold text-white">{profile?.name || "Alex"}</p>
+                <p className="text-lg font-bold text-white">
+                  {profile?.name || session?.user?.name || "Primary Profile"}
+                </p>
                 <p className="text-xs text-[#888]">
                   {parental.maturityLevel} • PIN Lock: {parental.pinRequired ? "Active" : "Off"}
                 </p>

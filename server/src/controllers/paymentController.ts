@@ -504,26 +504,22 @@ export const getInvoices = async (req: AuthenticatedRequest, res: Response, next
       } catch { /* fallback below */ }
     }
 
-    // BUG-3: Default billing history fallback uses consistent USD ($) amounts matching PLAN_SPECS
-    if (invoicesList.length === 0) {
+    // Default initial billing record for active subscription
+    if (invoicesList.length === 0 && user.subscription?.status === 'active') {
       const now = new Date();
       const planAmount = user.subscription?.planId === 'mobile'
         ? '$3.99'
         : user.subscription?.planId === 'standard'
           ? '$9.99'
           : '$15.99';
-      for (let i = 0; i < 5; i++) {
-        const d = new Date(now);
-        d.setMonth(d.getMonth() - i);
-        invoicesList.push({
-          id: `INV-2026-00${8 - i}`,
-          date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          description: `Streamly ${user.subscription?.planName || 'Premium'} Plan`,
-          amount: planAmount,
-          status: 'Paid',
-          card: `${(user.subscription?.cardBrand || 'Visa').toUpperCase()} •••• ${user.subscription?.cardLast4 || '4242'}`,
-        });
-      }
+      invoicesList.push({
+        id: `INV-${now.getFullYear()}-001`,
+        date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        description: `Streamly ${user.subscription?.planName || 'Premium'} Plan`,
+        amount: planAmount,
+        status: 'Paid',
+        card: `${(user.subscription?.cardBrand || 'Visa').toUpperCase()} •••• ${user.subscription?.cardLast4 || '4242'}`,
+      });
     }
 
     res.status(200).json({ status: 'success', data: { invoices: invoicesList } });

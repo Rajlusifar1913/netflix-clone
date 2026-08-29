@@ -19,6 +19,9 @@ import { stripeWebhook } from './controllers/paymentController.js';
 export const createApp = (): express.Application => {
   const app = express();
 
+  // Trust reverse proxies (Render, Cloudflare, Vercel) for accurate client IP detection and rate limiting
+  app.set('trust proxy', 1);
+
   // Security HTTP Headers
   app.use(helmet());
 
