@@ -207,10 +207,19 @@ export default function WatchPage() {
 
   const [sourceIndex, setSourceIndex] = useState(0);
 
-  // Track video view for Admin analytics once user has watched at least 5s or started playback
+  // Reset source index and view tracking whenever the media changes
   useEffect(() => {
     hasTrackedViewRef.current = false;
+    setSourceIndex(0);
+    setHasError(false);
+    setIsBuffering(true);
   }, [mediaId]);
+
+  // Force video element to reload when the source URL actually changes
+  useEffect(() => {
+    if (!videoRef.current) return;
+    videoRef.current.load();
+  }, [currentSource]);
 
   const trackViewOnce = (watchTime: number, totalDur: number) => {
     if (hasTrackedViewRef.current) return;
@@ -567,11 +576,13 @@ export default function WatchPage() {
         />
       </div>
 
-      {/* Video Element */}
+      {/* Video Element — key forces full remount when source changes */}
       <video
+        key={currentSource}
         ref={videoRef}
         src={currentSource}
         playsInline
+        crossOrigin="anonymous"
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onCanPlay={handleCanPlay}
