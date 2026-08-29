@@ -215,12 +215,6 @@ export default function WatchPage() {
     setIsBuffering(true);
   }, [mediaId]);
 
-  // Force video element to reload when the source URL actually changes
-  useEffect(() => {
-    if (!videoRef.current) return;
-    videoRef.current.load();
-  }, [currentSource]);
-
   const trackViewOnce = (watchTime: number, totalDur: number) => {
     if (hasTrackedViewRef.current) return;
     if (watchTime >= 4 || watchTime >= totalDur * 0.1) {
