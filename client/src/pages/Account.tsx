@@ -230,11 +230,18 @@ export default function AccountPage() {
       });
 
     // Fetch live billing invoices from API
+    // CLIENT-SIDE GUARD: Even if the server sends invoices, only render them
+    // for the exact demo account. All other users must see an empty history.
+    const userEmail = session?.user?.email?.toLowerCase().trim() ?? "";
+    const isExactDemo = userEmail === "demo@streamly.com";
+
     apiRequest<{ data: { invoices: typeof invoices } }>("/payments/invoices")
       .then((res) => {
-        if (res?.data?.invoices) {
+        if (res?.data?.invoices && isExactDemo) {
+          // Only demo account can see mock/real invoices from API
           setInvoices(res.data.invoices);
         }
+        // All other accounts always stay at empty array — no billing history shown
       })
       .catch(() => { /* invoices remain empty — no fake data fallback */ })
       .finally(() => setInvoicesLoading(false));
