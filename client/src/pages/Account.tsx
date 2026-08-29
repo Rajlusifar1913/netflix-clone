@@ -221,9 +221,25 @@ export default function AccountPage() {
 
   useEffect(() => {
     // Fetch live subscription status from API
+    // CLIENT-SIDE GUARD: Strip any mock card data for non-demo accounts
+    const userEmail = session?.user?.email?.toLowerCase().trim() ?? "";
+    const isExactDemo = userEmail === "demo@streamly.com";
+
     apiRequest<{ data: SubscriptionState }>("/payments/subscription")
       .then((res) => {
-        if (res.data) setSubData(res.data);
+        if (res.data) {
+          const safeData = { ...res.data };
+          if (!isExactDemo) {
+            // For all non-demo accounts: always clear card details
+            // regardless of what the server sends (guards against stale server code)
+            safeData.subscription = {
+              ...safeData.subscription,
+              cardLast4: "",
+              cardBrand: "",
+            };
+          }
+          setSubData(safeData);
+        }
       })
       .catch(() => {
         // Fallback to local session defaults
@@ -232,8 +248,6 @@ export default function AccountPage() {
     // Fetch live billing invoices from API
     // CLIENT-SIDE GUARD: Even if the server sends invoices, only render them
     // for the exact demo account. All other users must see an empty history.
-    const userEmail = session?.user?.email?.toLowerCase().trim() ?? "";
-    const isExactDemo = userEmail === "demo@streamly.com";
 
     apiRequest<{ data: { invoices: typeof invoices } }>("/payments/invoices")
       .then((res) => {
