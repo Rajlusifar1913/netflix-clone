@@ -24,62 +24,40 @@ import { recordVideoView } from "@/lib/analytics";
 import { useSession } from "@/lib/mockAuth";
 import { useApp } from "@/components/AppProvider";
 
-// Multiple reliable open-source video sources — one unique URL per title
-const SAMPLE_VIDEOS: Record<number, string[]> = {
-  1: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    "https://vjs.zencdn.net/v/oceans.mp4",
-  ],
-  2: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-  ],
-  3: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-  ],
-  4: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-  ],
-  5: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreet.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-  ],
-  6: [
-    "https://vjs.zencdn.net/v/oceans.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-  ],
-  7: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-  ],
-  8: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-  ],
-  9: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4",
-    "https://vjs.zencdn.net/v/oceans.mp4",
-  ],
-  10: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-  ],
-  11: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-    "https://vjs.zencdn.net/v/oceans.mp4",
-  ],
-  12: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreet.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-  ],
-};
-
-const DEFAULT_SOURCES = [
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+// Open-license demo videos hosted on Archive.org and VideoJS CDN — no geo-restrictions
+const VIDEO_POOL: string[] = [
+  // Blender Open Films via Archive.org (no geo-block, works everywhere)
+  "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4",
+  "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4",
+  "https://archive.org/download/Sintel/sintel-2048-surround.mp4",
+  "https://archive.org/download/TearsOfSteel/tears_of_steel_720p.mp4",
+  // VideoJS sample (reliable global CDN)
   "https://vjs.zencdn.net/v/oceans.mp4",
+  // W3Schools / W3C hosted samples (always accessible)
+  "https://www.w3schools.com/html/mov_bbb.mp4",
+  // Additional Archive.org open films
+  "https://archive.org/download/CosmosLaundromat/Cosmos%20Laundromat%20-%20First%20Cycle%20-%20Official%20Blender%20Foundation%20release.mp4",
+  "https://archive.org/download/glasshalf-FilmShortFilm27651/glass_half.mp4",
+  "https://archive.org/download/youtube-BaW_jenozKc/BaW_jenozKc.mp4",
 ];
+
+/**
+ * Returns a deterministic, varied list of video sources for any media ID.
+ * Works for both catalog IDs (1-12) and real TMDB IDs (e.g. 693134).
+ * The primary source is picked by `id % pool.length` so every title feels different.
+ * A second source (offset +1) is included as an automatic fallback.
+ */
+function getSourcesForId(id: number): string[] {
+  const primary = VIDEO_POOL[Math.abs(id) % VIDEO_POOL.length];
+  const fallback = VIDEO_POOL[Math.abs(id + 1) % VIDEO_POOL.length];
+  // Ensure fallback differs from primary
+  const secondFallback = VIDEO_POOL[Math.abs(id + 2) % VIDEO_POOL.length];
+  return fallback !== primary
+    ? [primary, fallback, secondFallback]
+    : [primary, secondFallback];
+}
+
+
 
 const ALL_MEDIA_CATALOG: Record<number, MediaItem> = {
   1: { id: 1, title: "Dune: Part Two", overview: "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family.", backdrop_path: "/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg", poster_path: "/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg", vote_average: 8.2, release_date: "2024-02-27", genre_ids: [878, 12] },
@@ -201,7 +179,8 @@ export default function WatchPage() {
     const list: string[] = [];
     if (signedStreamUrl) list.push(signedStreamUrl);
     if (customCatalogItem?.videoUrl) list.push(customCatalogItem.videoUrl);
-    const fallbacks = SAMPLE_VIDEOS[mediaId] ?? DEFAULT_SOURCES;
+    // getSourcesForId works for any ID — catalog IDs (1-12) or real TMDB IDs (693134, etc.)
+    const fallbacks = getSourcesForId(mediaId);
     return list.length > 0 ? [...list, ...fallbacks] : fallbacks;
   }, [mediaId, customCatalogItem, signedStreamUrl]);
 

@@ -19,7 +19,7 @@ export interface VideoCatalogItem extends MediaItem {
 
 const CATALOG_STORAGE_KEY = "streamly_video_catalog";
 const CATALOG_VERSION_KEY = "streamly_catalog_version";
-const CATALOG_VERSION = "2"; // bump this whenever default URLs change
+const CATALOG_VERSION = "3"; // bump this whenever default URLs change
 
 /** Clear stale catalog if version is outdated so users always get fresh URLs */
 function ensureCatalogVersion(): void {
@@ -43,7 +43,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [878, 12],
     quality: "4K UHD",
     durationMinutes: 166,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    videoUrl: "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4",
     viewsCount: 28450,
     addedAt: "2024-03-01T10:00:00Z",
   },
@@ -60,7 +60,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [18, 36],
     quality: "4K UHD",
     durationMinutes: 180,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+    videoUrl: "https://archive.org/download/Sintel/sintel-2048-surround.mp4",
     viewsCount: 24190,
     addedAt: "2024-02-15T12:00:00Z",
   },
@@ -77,7 +77,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [28, 80],
     quality: "4K UHD",
     durationMinutes: 152,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+    videoUrl: "https://archive.org/download/Sintel/sintel-2048-surround.mp4",
     viewsCount: 31200,
     addedAt: "2024-01-10T08:00:00Z",
   },
@@ -95,7 +95,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [18, 9648],
     quality: "4K UHD",
     durationMinutes: 55,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+    videoUrl: "https://archive.org/download/TearsOfSteel/tears_of_steel_720p.mp4",
     viewsCount: 38940,
     addedAt: "2024-01-05T09:30:00Z",
   },
@@ -113,7 +113,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [35, 9648],
     quality: "4K UHD",
     durationMinutes: 48,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreet.mp4",
+    videoUrl: "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4",
     viewsCount: 29800,
     addedAt: "2024-02-01T14:15:00Z",
   },
@@ -148,7 +148,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [18, 10759],
     quality: "4K UHD",
     durationMinutes: 60,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+    videoUrl: "https://archive.org/download/CosmosLaundromat/Cosmos%20Laundromat%20-%20First%20Cycle%20-%20Official%20Blender%20Foundation%20release.mp4",
     viewsCount: 26500,
     addedAt: "2024-02-10T16:00:00Z",
   },
@@ -165,7 +165,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [12, 18, 878],
     quality: "4K UHD",
     durationMinutes: 169,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+    videoUrl: "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4",
     viewsCount: 35100,
     addedAt: "2024-01-15T18:00:00Z",
   },
@@ -183,7 +183,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [16, 10759],
     quality: "4K UHD",
     durationMinutes: 42,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreet.mp4",
+    videoUrl: "https://vjs.zencdn.net/v/oceans.mp4",
     viewsCount: 22800,
     addedAt: "2024-02-18T10:00:00Z",
   },
@@ -200,7 +200,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [28, 12],
     quality: "4K UHD",
     durationMinutes: 120,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+    videoUrl: "https://archive.org/download/TearsOfSteel/tears_of_steel_720p.mp4",
     viewsCount: 19400,
     addedAt: "2024-01-25T13:00:00Z",
   },
@@ -236,7 +236,7 @@ export const DEFAULT_CATALOG: VideoCatalogItem[] = [
     genre_ids: [99],
     quality: "4K UHD",
     durationMinutes: 50,
-    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    videoUrl: "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4",
     viewsCount: 16800,
     addedAt: "2024-01-30T17:00:00Z",
   },
