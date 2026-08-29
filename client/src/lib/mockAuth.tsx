@@ -348,6 +348,7 @@ export async function signIn(
     window.dispatchEvent(new Event("streamly:session-change"));
     return { ok: true, error: null };
   } catch (backendError) {
+    let lastError: string | null = null;
     if (backendError instanceof Error) {
       if (backendError.message.toLowerCase().includes("verify your email")) {
         return { ok: false, error: backendError.message, requiresVerification: true, email };
@@ -355,31 +356,38 @@ export async function signIn(
       if (backendError.message.includes("Invalid email or password")) {
         return { ok: false, error: backendError.message };
       }
+      lastError = backendError.message;
     }
-    // For other backend errors (server down etc), fall through to local fallback
+
+    // 2. Local Fallback Auth
+    const users = getUsers();
+    const user = users.find((u) => u.email === email.toLowerCase().trim());
+
+    if (user && verify(password, user.passwordHash)) {
+      const session: Session = {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.email.toLowerCase() === "admin@streamly.com" || user.id === "usr_admin" ? "admin" : "user",
+          image: user.image,
+        },
+      };
+      saveSession(session);
+      window.dispatchEvent(new Event("streamly:session-change"));
+      return { ok: true, error: null };
+    }
+
+    // If local user wasn't found and we had a backend connection error, show connection guidance
+    if (lastError && (lastError.includes("Failed to fetch") || lastError.includes("NetworkError") || lastError.includes("network"))) {
+      return {
+        ok: false,
+        error: "Backend server is waking up or unreachable. Please wait ~30 seconds and try again.",
+      };
+    }
+
+    return { ok: false, error: lastError || "Email or password is incorrect." };
   }
-
-  // 2. Local Fallback Auth
-  const users = getUsers();
-  const user = users.find((u) => u.email === email.toLowerCase().trim());
-
-  if (!user || !verify(password, user.passwordHash)) {
-    return { ok: false, error: "Email or password is incorrect." };
-  }
-
-  const session: Session = {
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.email.toLowerCase() === "admin@streamly.com" || user.id === "usr_admin" ? "admin" : "user",
-      image: user.image,
-    },
-  };
-  saveSession(session);
-  window.dispatchEvent(new Event("streamly:session-change"));
-
-  return { ok: true, error: null };
 }
 
 /**
