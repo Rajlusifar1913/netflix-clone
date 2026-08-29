@@ -37,7 +37,7 @@ export default function HelpPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="What do you need help with?"
-              className="w-full rounded-md border border-white/20 bg-black/60 py-3.5 pl-12 pr-4 text-sm text-white placeholder-[#888] backdrop-blur focus:border-white focus:outline-none"
+              className="w-full rounded-md border border-white/20 bg-black/60 py-3.5 pl-12 pr-4 text-sm text-white placeholder-[#888] backdrop-blur focus:border-[#e50914] focus:ring-2 focus:ring-[#e50914]/40 focus:shadow-[0_0_18px_rgba(229,9,20,0.35)] outline-none transition-all"
             />
           </div>
         </div>

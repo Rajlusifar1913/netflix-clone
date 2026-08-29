@@ -1,11 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Bell,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   CreditCard,
+  Download,
+  FileText,
   KeyRound,
+  Lock,
   Mail,
   Search,
   Shield,
@@ -34,10 +38,30 @@ interface SubscriptionState {
   };
 }
 
+interface ParentalSettings {
+  maturityLevel: string;
+  pinRequired: boolean;
+  pin: string;
+}
+
+const DEFAULT_PARENTAL: ParentalSettings = {
+  maturityLevel: "All Maturity Ratings (18+)",
+  pinRequired: false,
+  pin: "1234",
+};
+
+const MOCK_INVOICES = [
+  { id: "INV-2026-008", date: "Aug 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
+  { id: "INV-2026-007", date: "Jul 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
+  { id: "INV-2026-006", date: "Jun 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
+  { id: "INV-2026-005", date: "May 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
+  { id: "INV-2026-004", date: "Apr 1, 2026", description: "Streamly Premium 4K UHD Plan", amount: "$19.99", status: "Paid", card: "Visa •••• 4242" },
+];
+
 export default function AccountPage() {
   const navigate = useNavigate();
   const { data: session } = useSession();
-  const { profile } = useApp();
+  const { profile, showToast } = useApp();
 
   const [subData, setSubData] = useState<SubscriptionState>({
     email: session?.user?.email || "demo@streamly.com",
@@ -54,11 +78,94 @@ export default function AccountPage() {
     },
   });
 
+  const [parental, setParental] = useState<ParentalSettings>(() => {
+    try {
+      const saved = localStorage.getItem("streamly-parental-controls");
+      return saved ? JSON.parse(saved) : DEFAULT_PARENTAL;
+    } catch {
+      return DEFAULT_PARENTAL;
+    }
+  });
+
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [newPin, setNewPin] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  const [notifications, setNotifications] = useState([
+    {
+      id: "n1",
+      title: "New 4K Release",
+      desc: "Dune: Part Two is now streaming in Ultra 4K HDR.",
+      time: "2 hours ago",
+      unread: true,
+    },
+    {
+      id: "n2",
+      title: "Subscription Active",
+      desc: "Your Ultra 4K HDR plan is active. Next renewal is on schedule.",
+      time: "1 day ago",
+      unread: true,
+    },
+    {
+      id: "n3",
+      title: "Trending Series",
+      desc: "Stranger Things Season 5 is currently #1 worldwide.",
+      time: "3 days ago",
+      unread: false,
+    },
+    {
+      id: "n4",
+      title: "Security Notice",
+      desc: "New login verified on Chrome (Windows).",
+      time: "5 days ago",
+      unread: false,
+    },
+  ]);
+
+  const unreadCount = notifications.filter((n) => n.unread).length;
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    }
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+  };
+
+  // Close search bar on outside click only if there's no text entered
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (
+        searchOpen &&
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        if (!searchQuery.trim()) {
+          setSearchOpen(false);
+        }
+      }
+    };
+
+    if (searchOpen) {
+      document.addEventListener("mousedown", handleOutsideClick);
+      document.addEventListener("touchstart", handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [searchOpen, searchQuery]);
 
   // Form States for Email/Password Modals
   const [newEmail, setNewEmail] = useState("");
@@ -163,14 +270,114 @@ export default function AccountPage() {
         </div>
 
         <div className="flex items-center gap-5 text-white">
-          <button aria-label="Search" className="text-[#ccc] hover:text-white">
-            <Search className="size-5" />
-          </button>
+          {/* Functional Search Toggle */}
+          <div ref={searchContainerRef} className="relative flex items-center">
+            {searchOpen ? (
+              <form onSubmit={handleSearchSubmit} className="flex items-center">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setSearchOpen(false);
+                      setSearchQuery("");
+                    }
+                  }}
+                  placeholder="Titles, people, genres"
+                  className="w-44 sm:w-64 rounded-full border-2 border-[#e50914] bg-black/90 px-4 py-1.5 text-xs text-white placeholder-[#888] outline-none shadow-[0_0_18px_rgba(229,9,20,0.5)] ring-1 ring-[#e50914]/50 search-glow-enter focus:border-[#e50914]"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchQuery("");
+                  }}
+                  className="ml-1.5 grid size-7 place-items-center rounded-full text-red-400 hover:bg-white/10 hover:text-white transition-colors"
+                  aria-label="Close search"
+                >
+                  <X className="size-4" />
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={() => setSearchOpen(true)}
+                aria-label="Search"
+                className="text-[#ccc] hover:text-white transition-colors"
+                title="Search catalog"
+              >
+                <Search className="size-5" />
+              </button>
+            )}
+          </div>
+
+          {/* Functional Notifications Bell with Popover */}
           <div className="relative">
-            <button aria-label="Notifications" className="text-[#ccc] hover:text-white">
+            <button
+              onClick={() => {
+                setNotifOpen(!notifOpen);
+                setMenuOpen(false);
+              }}
+              aria-label="Notifications"
+              className="relative text-[#ccc] hover:text-white transition-colors focus:outline-none"
+              title="Notifications"
+            >
               <Bell className="size-5" />
-              <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-[#e50914]" />
+              {unreadCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex size-2.5 items-center justify-center rounded-full bg-[#e50914] text-[8px] font-bold ring-2 ring-black" />
+              )}
             </button>
+
+            {notifOpen && (
+              <div className="absolute right-0 top-9 z-50 w-80 sm:w-96 rounded-xl border border-white/15 bg-black/95 p-4 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-white">Notifications</span>
+                    {unreadCount > 0 && (
+                      <span className="rounded-full bg-[#e50914] px-1.5 py-0.2 text-[10px] font-extrabold text-white">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </div>
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={markAllNotificationsAsRead}
+                      className="text-[11px] font-medium text-[#aaa] hover:text-white transition-colors"
+                    >
+                      Mark all as read
+                    </button>
+                  )}
+                </div>
+
+                <div className="mt-3 max-h-72 space-y-2 overflow-y-auto divide-y divide-white/5 pr-1">
+                  {notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      className={`pt-2.5 pb-2 transition-colors rounded px-2 ${
+                        n.unread ? "bg-white/[0.04]" : "opacity-75"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs font-bold text-white">{n.title}</p>
+                        <span className="text-[10px] text-[#777] shrink-0">{n.time}</span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#bbb] leading-relaxed">{n.desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-3 border-t border-white/10 pt-2 text-center">
+                  <Link
+                    to="/browse"
+                    onClick={() => setNotifOpen(false)}
+                    className="text-xs font-semibold text-[#e50914] hover:underline"
+                  >
+                    Explore trending releases
+                  </Link>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="relative">
@@ -296,33 +503,215 @@ export default function AccountPage() {
 
         {/* ── PROFILES & PARENTAL CONTROLS ── */}
         <div className="mt-6 rounded-xl border border-white/10 bg-[#181818] p-6 shadow-xl sm:p-8">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#aaa]">
-            PROFILES & PARENTAL CONTROLS
-          </p>
-
-          <div className="mt-4 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-4">
-              <div
-                style={{ background: profile?.avatar || "linear-gradient(135deg,#0072d2,#62d5ff)" }}
-                className="grid size-12 place-items-center rounded bg-blue-600 text-lg font-black text-white shadow"
-              >
-                {profile?.name?.charAt(0) || "A"}
-              </div>
-              <div>
-                <p className="text-base font-bold text-white">{profile?.name || "Alex"}</p>
-                <p className="text-xs text-[#888]">All Maturity Levels • Viewing Restrictions: Off</p>
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#aaa]">
+              <Lock className="size-4 text-[#e50914]" />
+              <span>PROFILES & PARENTAL CONTROLS</span>
             </div>
-
             <button
               onClick={() => navigate("/profiles")}
               className="flex items-center gap-1 text-xs font-semibold text-[#aaa] hover:text-white"
             >
-              Switch <ChevronRight className="size-4" />
+              Switch Profile <ChevronRight className="size-4" />
             </button>
+          </div>
+
+          <div className="mt-6 flex flex-col justify-between gap-6 border-b border-white/10 pb-6 md:flex-row md:items-center">
+            <div className="flex items-center gap-4">
+              <div
+                style={{ background: profile?.avatar || "linear-gradient(135deg,#0072d2,#62d5ff)" }}
+                className="grid size-14 place-items-center rounded-xl bg-blue-600 text-xl font-black text-white shadow-lg"
+              >
+                {profile?.name?.charAt(0) || "A"}
+              </div>
+              <div>
+                <p className="text-lg font-bold text-white">{profile?.name || "Alex"}</p>
+                <p className="text-xs text-[#888]">
+                  {parental.maturityLevel} • PIN Lock: {parental.pinRequired ? "Active" : "Off"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => {
+                  const newPinReq = !parental.pinRequired;
+                  const updated = { ...parental, pinRequired: newPinReq };
+                  setParental(updated);
+                  localStorage.setItem("streamly-parental-controls", JSON.stringify(updated));
+                  showToast(
+                    newPinReq ? "Profile PIN lock enabled." : "Profile PIN lock disabled.",
+                    "success"
+                  );
+                }}
+                className={`rounded border px-4 py-2 text-xs font-semibold transition ${
+                  parental.pinRequired
+                    ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/40"
+                    : "border-white/20 bg-[#262626] text-white hover:bg-[#333]"
+                }`}
+              >
+                {parental.pinRequired ? "PIN Lock: ON" : "Enable PIN Lock"}
+              </button>
+
+              <button
+                onClick={() => setShowPinModal(true)}
+                className="rounded border border-white/20 bg-[#262626] px-4 py-2 text-xs font-semibold text-white hover:bg-[#333]"
+              >
+                Change PIN
+              </button>
+            </div>
+          </div>
+
+          {/* Maturity Restrictions Selector */}
+          <div className="mt-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <div>
+              <p className="text-sm font-semibold text-white">Viewing Restrictions</p>
+              <p className="mt-0.5 text-xs text-[#888]">
+                Titles with maturity ratings above this will require your PIN to watch.
+              </p>
+            </div>
+
+            <select
+              value={parental.maturityLevel}
+              onChange={(e) => {
+                const updated = { ...parental, maturityLevel: e.target.value };
+                setParental(updated);
+                localStorage.setItem("streamly-parental-controls", JSON.stringify(updated));
+                showToast(`Viewing restrictions set to: ${e.target.value}`, "info");
+              }}
+              className="rounded-lg border border-white/20 bg-[#262626] px-3.5 py-2 text-xs font-semibold text-white outline-none focus:border-[#e50914]"
+            >
+              <option value="All Maturity Ratings (18+)">All Maturity Ratings (18+)</option>
+              <option value="16+ (Teens & Mature)">16+ (Teens & Mature)</option>
+              <option value="13+ (PG-13 & Teens)">13+ (PG-13 & Teens)</option>
+              <option value="7+ (Kids & Family)">7+ (Kids & Family)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* ── BILLING & PAYMENT HISTORY ── */}
+        <div className="mt-6 rounded-xl border border-white/10 bg-[#181818] p-6 shadow-xl sm:p-8">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#aaa]">
+            <FileText className="size-4 text-[#e50914]" />
+            <span>BILLING HISTORY & INVOICES</span>
+          </div>
+
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-white/10 text-[#888] font-semibold uppercase tracking-wider">
+                  <th className="pb-3 pl-2">Invoice</th>
+                  <th className="pb-3">Date</th>
+                  <th className="pb-3">Description</th>
+                  <th className="pb-3">Payment Method</th>
+                  <th className="pb-3">Amount</th>
+                  <th className="pb-3">Status</th>
+                  <th className="pb-3 pr-2 text-right">Receipt</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-[#ccc]">
+                {MOCK_INVOICES.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-white/[0.02] transition">
+                    <td className="py-3.5 pl-2 font-mono text-white font-semibold">{inv.id}</td>
+                    <td className="py-3.5">{inv.date}</td>
+                    <td className="py-3.5 font-medium text-white">{inv.description}</td>
+                    <td className="py-3.5 text-[#888]">{inv.card}</td>
+                    <td className="py-3.5 font-bold text-white">{inv.amount}</td>
+                    <td className="py-3.5">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400">
+                        <CheckCircle2 className="size-3" />
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td className="py-3.5 pr-2 text-right">
+                      <button
+                        onClick={() => showToast(`Downloaded invoice ${inv.id} (PDF)`, "success")}
+                        className="inline-flex items-center gap-1 text-[#aaa] hover:text-white transition"
+                        title="Download Receipt"
+                      >
+                        <Download className="size-3.5" />
+                        PDF
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
+
+      {/* ── PIN SETUP MODAL ── */}
+      {showPinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-sm rounded-xl border border-white/10 bg-[#181818] p-6 shadow-2xl sm:p-8">
+            <button
+              onClick={() => { setShowPinModal(false); setNewPin(""); }}
+              className="absolute right-4 top-4 rounded-full p-2 text-[#aaa] hover:bg-white/10 hover:text-white"
+            >
+              <X className="size-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-[#e50914]/20 p-2.5 text-[#e50914]">
+                <Lock className="size-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Profile PIN Lock</h3>
+                <p className="text-xs text-[#aaa]">Enter a 4-digit PIN for this profile.</p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (newPin.length !== 4) return;
+                const updated = { ...parental, pin: newPin, pinRequired: true };
+                setParental(updated);
+                localStorage.setItem("streamly-parental-controls", JSON.stringify(updated));
+                showToast("Profile PIN set successfully!", "success");
+                setShowPinModal(false);
+                setNewPin("");
+              }}
+              className="mt-6 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[#888]">
+                  4-Digit Security PIN
+                </label>
+                <input
+                  type="password"
+                  maxLength={4}
+                  pattern="\d{4}"
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
+                  placeholder="••••"
+                  className="mt-2 w-full text-center text-2xl tracking-[0.5em] font-mono rounded border border-white/20 bg-black/60 px-4 py-3 text-white outline-none focus:border-[#e50914]"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => { setShowPinModal(false); setNewPin(""); }}
+                  className="rounded border border-white/20 px-4 py-2 text-xs font-semibold text-[#ccc] hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={newPin.length !== 4}
+                  className="rounded bg-[#e50914] px-5 py-2 text-xs font-semibold text-white hover:bg-[#c80710] disabled:opacity-50"
+                >
+                  Save PIN
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ── PLAN SELECTION MODAL ── */}
       {showPlanModal && (

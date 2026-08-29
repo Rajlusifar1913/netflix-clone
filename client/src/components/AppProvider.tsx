@@ -10,10 +10,22 @@ import {
 import { useNavigate, useLocation } from "react-router-dom";
 import { SessionProvider, useSession } from "@/lib/mockAuth";
 import type { MediaItem } from "@/types/media";
+import type { Toast } from "@/components/ToastContainer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ActiveProfile { name: string; avatar: string; kids?: boolean }
+
+export interface WatchHistoryEntry {
+  id: number;
+  title: string;
+  progress: number; // 0-100
+  backdrop_path: string | null;
+  poster_path: string | null;
+  media_type?: string;
+  watchedAt: number; // timestamp ms
+}
+
 interface AppState {
   profile: ActiveProfile | null;
   setProfile: (profile: ActiveProfile) => void;
@@ -22,13 +34,21 @@ interface AppState {
   closeMedia: () => void;
   myList: number[];
   toggleList: (id: number) => void;
+  // Toast system
+  toasts: Toast[];
+  showToast: (message: string, variant?: Toast["variant"], duration?: number) => void;
+  dismissToast: (id: string) => void;
+  // Watch history
+  watchHistory: WatchHistoryEntry[];
+  addToWatchHistory: (entry: WatchHistoryEntry) => void;
+  clearWatchHistory: () => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
 
 // ─── Route Guards ─────────────────────────────────────────────────────────────
 
-const PROTECTED_PATHS = ["/browse", "/profiles", "/tv-shows", "/movies", "/latest", "/my-list", "/watch", "/account", "/search", "/help"];
+const PROTECTED_PATHS = ["/browse", "/profiles", "/tv-shows", "/movies", "/latest", "/my-list", "/watch", "/account", "/search", "/help", "/title"];
 const AUTH_PATHS = ["/login", "/register"];
 
 function RouteGuard({ children }: { children: ReactNode }) {
@@ -54,16 +74,23 @@ function RouteGuard({ children }: { children: ReactNode }) {
 
 // ─── App state ────────────────────────────────────────────────────────────────
 
+const WATCH_HISTORY_KEY = "streamly-watch-history";
+const MAX_WATCH_HISTORY = 20;
+
 function AppStateProvider({ children }: { children: ReactNode }) {
   const [profile, setProfileState] = useState<ActiveProfile | null>(null);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [myList, setMyList] = useState<number[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [watchHistory, setWatchHistory] = useState<WatchHistoryEntry[]>([]);
 
   useEffect(() => {
     const savedProfile = localStorage.getItem("streamly-profile");
     const savedList = localStorage.getItem("streamly-list");
+    const savedHistory = localStorage.getItem(WATCH_HISTORY_KEY);
     if (savedProfile) setProfileState(JSON.parse(savedProfile) as ActiveProfile);
     if (savedList) setMyList(JSON.parse(savedList) as number[]);
+    if (savedHistory) setWatchHistory(JSON.parse(savedHistory) as WatchHistoryEntry[]);
   }, []);
 
   const setProfile = useCallback((next: ActiveProfile) => {
@@ -81,6 +108,36 @@ function AppStateProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // ── Toast system ─────────────────────────────────────────────────────────────
+  const showToast = useCallback(
+    (message: string, variant: Toast["variant"] = "info", duration = 3500) => {
+      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setToasts((prev) => [...prev.slice(-4), { id, message, variant, duration }]);
+    },
+    []
+  );
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // ── Watch history ─────────────────────────────────────────────────────────────
+  const addToWatchHistory = useCallback((entry: WatchHistoryEntry) => {
+    setWatchHistory((prev) => {
+      const filtered = prev.filter((e) => e.id !== entry.id);
+      const updated = [entry, ...filtered].slice(0, MAX_WATCH_HISTORY);
+      try {
+        localStorage.setItem(WATCH_HISTORY_KEY, JSON.stringify(updated));
+      } catch { /* ignore */ }
+      return updated;
+    });
+  }, []);
+
+  const clearWatchHistory = useCallback(() => {
+    setWatchHistory([]);
+    localStorage.removeItem(WATCH_HISTORY_KEY);
+  }, []);
+
   const value = useMemo<AppState>(
     () => ({
       profile,
@@ -90,8 +147,14 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       closeMedia: () => setSelectedMedia(null),
       myList,
       toggleList,
+      toasts,
+      showToast,
+      dismissToast,
+      watchHistory,
+      addToWatchHistory,
+      clearWatchHistory,
     }),
-    [profile, selectedMedia, myList, setProfile, toggleList]
+    [profile, selectedMedia, myList, toasts, watchHistory, setProfile, toggleList, showToast, dismissToast, addToWatchHistory, clearWatchHistory]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

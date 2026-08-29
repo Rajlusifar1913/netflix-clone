@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useLocation, useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
   AlertTriangle,
+  Captions,
   Gauge,
   Maximize,
   Minimize,
@@ -10,13 +11,15 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  ScanLine,
   Volume1,
   Volume2,
   VolumeX,
 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import { mediaTitle } from "@/lib/utils";
 import type { MediaItem } from "@/types/media";
-import { getVideoById } from "@/lib/videoCatalog";
+import { getVideoById, getCatalogVideos } from "@/lib/videoCatalog";
 import { recordVideoView } from "@/lib/analytics";
 import { useSession } from "@/lib/mockAuth";
 import { useApp } from "@/components/AppProvider";
@@ -94,7 +97,7 @@ export default function WatchPage() {
   const mediaId = Number(searchParams.get("id") ?? "1");
   const urlTitle = searchParams.get("title");
   const { data: session } = useSession();
-  const { profile } = useApp();
+  const { profile, addToWatchHistory } = useApp();
 
   const [currentMedia, setCurrentMedia] = useState<MediaItem>(() => {
     const passedMedia = (location.state as { media?: MediaItem } | null)?.media;
@@ -196,6 +199,31 @@ export default function WatchPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState<number>(1);
+  const [objectFit, setObjectFit] = useState<"cover" | "contain">("cover");
+  const [showCaptions, setShowCaptions] = useState(false);
+  const [showEpisodes, setShowEpisodes] = useState(false);
+  const [selectedSeason, setSelectedSeason] = useState(1);
+  const [showUpNext, setShowUpNext] = useState(false);
+  const [upNextCountdown, setUpNextCountdown] = useState(10);
+  const upNextTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const progressSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const allCatalog = useMemo(() => getCatalogVideos(), []);
+  const isTV = currentMedia?.media_type === "tv" || !!currentMedia?.first_air_date;
+
+  const upNextMedia = useMemo(() => {
+    const list = allCatalog.filter((item) => item.id !== mediaId);
+    const similar = list.filter((item) => item.genre_ids?.some((g) => currentMedia?.genre_ids?.includes(g)));
+    return similar[0] ?? list[0];
+  }, [allCatalog, mediaId, currentMedia]);
+
+  const MOCK_TV_SEASONS = [
+    { season: 1, episodes: 8 },
+    { season: 2, episodes: 10 },
+    { season: 3, episodes: 10 },
+    { season: 4, episodes: 12 },
+  ];
+  const currentSeasonEpisodes = MOCK_TV_SEASONS.find((s) => s.season === selectedSeason)?.episodes ?? 8;
 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
@@ -343,6 +371,27 @@ export default function WatchPage() {
 
 
 
+  const saveProgressDebounced = useCallback(() => {
+    if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current);
+    progressSaveTimerRef.current = setTimeout(() => {
+      if (!videoRef.current || !currentMedia) return;
+      const cur = videoRef.current.currentTime;
+      const dur = videoRef.current.duration || 1;
+      const pct = Math.round((cur / dur) * 100);
+      if (pct > 2 && pct < 98) {
+        addToWatchHistory({
+          id: currentMedia.id,
+          title: mediaTitle(currentMedia),
+          progress: pct,
+          backdrop_path: currentMedia.backdrop_path,
+          poster_path: currentMedia.poster_path,
+          media_type: currentMedia.media_type,
+          watchedAt: Date.now(),
+        });
+      }
+    }, 5000);
+  }, [currentMedia, addToWatchHistory]);
+
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const cur = videoRef.current.currentTime;
@@ -351,6 +400,7 @@ export default function WatchPage() {
     setDuration(dur);
     setProgress((cur / dur) * 100);
     trackViewOnce(cur, dur);
+    saveProgressDebounced();
   };
 
   const handleLoadedMetadata = () => {
@@ -474,6 +524,16 @@ export default function WatchPage() {
         </div>
       )}
 
+      {/* Dynamic Real-Time Ambilight Screen Glow */}
+      <div className="pointer-events-none absolute inset-0 -z-0 overflow-hidden opacity-35">
+        <div
+          className="absolute inset-0 bg-cover bg-center blur-[100px] scale-110"
+          style={{
+            backgroundImage: `url(https://image.tmdb.org/t/p/w500${currentMedia?.backdrop_path ?? currentMedia?.poster_path})`,
+          }}
+        />
+      </div>
+
       {/* Video Element */}
       <video
         ref={videoRef}
@@ -484,10 +544,140 @@ export default function WatchPage() {
         onCanPlay={handleCanPlay}
         onWaiting={handleWaiting}
         onError={handleVideoError}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setShowUpNext(true);
+          setUpNextCountdown(10);
+          if (upNextTimerRef.current) clearInterval(upNextTimerRef.current);
+          upNextTimerRef.current = setInterval(() => {
+            setUpNextCountdown((prev) => {
+              if (prev <= 1) {
+                clearInterval(upNextTimerRef.current!);
+                if (upNextMedia) navigate(`/watch?id=${upNextMedia.id}&title=${encodeURIComponent(mediaTitle(upNextMedia))}`, { state: { media: upNextMedia } });
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        }}
         onClick={togglePlay}
-        className="h-full w-full object-cover cursor-pointer"
+        className={`relative z-10 h-full w-full cursor-pointer ${objectFit === "cover" ? "object-cover" : "object-contain"}`}
       />
+
+      {/* Smart Skip Intro Floating Pill Button */}
+      {currentTime > 2 && currentTime < 85 && (
+        <motion.button
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 20 }}
+          onClick={() => {
+            if (videoRef.current) {
+              videoRef.current.currentTime = 85;
+              setCurrentTime(85);
+            }
+          }}
+          className="absolute bottom-28 right-8 z-30 flex items-center gap-2 rounded-lg border border-white/40 bg-black/80 px-5 py-2.5 text-xs font-bold text-white shadow-2xl backdrop-blur-md transition hover:bg-white hover:text-black hover:scale-105 active:scale-95"
+        >
+          <span>Skip Intro</span>
+          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-mono">
+            S
+          </span>
+        </motion.button>
+      )}
+
+      {/* Up Next Overlay */}
+      <AnimatePresence>
+        {showUpNext && upNextMedia && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          >
+            <div className="relative flex flex-col items-center gap-5 rounded-2xl border border-white/10 bg-[#1a1a1a]/90 p-8 text-center shadow-2xl max-w-sm mx-4">
+              <button
+                onClick={() => { setShowUpNext(false); if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!); }}
+                className="absolute top-3 right-3 rounded-full p-1.5 text-white/50 hover:text-white hover:bg-white/10 transition"
+              >
+                ✕
+              </button>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#e50914]">Up Next</p>
+              <img
+                src={`https://image.tmdb.org/t/p/w342${upNextMedia.backdrop_path ?? upNextMedia.poster_path}`}
+                alt={mediaTitle(upNextMedia)}
+                className="w-full rounded-lg object-cover aspect-video"
+                onError={(e) => (e.currentTarget.style.display = "none")}
+              />
+              <h2 className="text-lg font-bold text-white">{mediaTitle(upNextMedia)}</h2>
+              <div className="flex items-center gap-3">
+                <Link
+                  to={`/watch?id=${upNextMedia.id}&title=${encodeURIComponent(mediaTitle(upNextMedia))}`}
+                  state={{ media: upNextMedia }}
+                  className="flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black transition hover:bg-white/80"
+                >
+                  <Play className="size-4 fill-current" /> Play ({upNextCountdown}s)
+                </Link>
+                <button
+                  onClick={() => { setShowUpNext(false); if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!); }}
+                  className="rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-white/15"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Episode Selector Panel (TV shows) */}
+      <AnimatePresence>
+        {showEpisodes && isTV && (
+          <motion.div
+            initial={{ x: "100%", opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: "100%", opacity: 0 }}
+            transition={{ type: "spring" as const, damping: 25, stiffness: 220 }}
+            className="absolute inset-y-0 right-0 z-40 w-72 flex flex-col bg-black/95 backdrop-blur-xl border-l border-white/10 overflow-hidden"
+          >
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <p className="font-bold text-sm text-white">Episodes</p>
+              <button onClick={() => setShowEpisodes(false)} className="text-white/50 hover:text-white transition text-lg">✕</button>
+            </div>
+            <div className="flex gap-2 px-4 py-3 border-b border-white/10">
+              {MOCK_TV_SEASONS.map((s) => (
+                <button
+                  key={s.season}
+                  onClick={() => setSelectedSeason(s.season)}
+                  className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                    selectedSeason === s.season ? "bg-[#e50914] text-white" : "border border-white/15 text-[#aaa] hover:text-white"
+                  }`}
+                >
+                  S{s.season}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+              {Array.from({ length: currentSeasonEpisodes }, (_, i) => i + 1).map((ep) => (
+                <Link
+                  key={ep}
+                  to={`/watch?id=${mediaId}&title=${encodeURIComponent(mediaTitle(currentMedia) + " S" + selectedSeason + "E" + ep)}`}
+                  state={{ media: currentMedia }}
+                  onClick={() => setShowEpisodes(false)}
+                  className="group flex items-center gap-3 rounded-lg border border-white/8 bg-white/5 p-3 text-sm transition hover:bg-white/10"
+                >
+                  <div className="grid size-9 shrink-0 place-items-center rounded bg-white/10 font-black text-[#e50914] text-xs group-hover:bg-[#e50914] group-hover:text-white transition">
+                    {ep}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white text-xs">Episode {ep}</p>
+                    <p className="text-[10px] text-[#888]">S{selectedSeason} · 45m</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Video Controls Overlay */}
       <div
@@ -697,6 +887,44 @@ export default function WatchPage() {
                 </span>
               </button>
             </div>
+
+            {/* CC / Subtitles toggle */}
+            <button
+              onClick={() => setShowCaptions((p) => !p)}
+              title="Toggle Captions"
+              aria-label="Toggle Captions"
+              className={`grid size-11 sm:size-13 place-items-center rounded-full transition-all duration-200 hover:scale-110 hover:bg-white/15 active:scale-95 ${
+                showCaptions ? "text-[#e50914] bg-[#e50914]/15" : "text-white/80 hover:text-white"
+              }`}
+            >
+              <Captions className="size-6 sm:size-7 stroke-[2]" />
+            </button>
+
+            {/* Fit / Letterbox toggle */}
+            <button
+              onClick={() => setObjectFit((p) => (p === "cover" ? "contain" : "cover"))}
+              title={objectFit === "cover" ? "Switch to Fit (Letterbox)" : "Switch to Fill"}
+              aria-label="Toggle fit mode"
+              className={`grid size-11 sm:size-13 place-items-center rounded-full transition-all duration-200 hover:scale-110 hover:bg-white/15 active:scale-95 ${
+                objectFit === "contain" ? "text-[#e50914] bg-[#e50914]/15" : "text-white/80 hover:text-white"
+              }`}
+            >
+              <ScanLine className="size-6 sm:size-7 stroke-[2]" />
+            </button>
+
+            {/* Episode selector (TV only) */}
+            {isTV && (
+              <button
+                onClick={() => setShowEpisodes((p) => !p)}
+                title="Episodes"
+                aria-label="Episode selector"
+                className={`grid size-11 sm:size-13 place-items-center rounded-full transition-all duration-200 hover:scale-110 hover:bg-white/15 active:scale-95 ${
+                  showEpisodes ? "text-[#e50914] bg-[#e50914]/15" : "text-white/80 hover:text-white"
+                }`}
+              >
+                <span className="text-[9px] font-black tracking-tight leading-none">EP</span>
+              </button>
+            )}
 
             <span className="rounded border border-white/40 bg-black/50 px-2.5 py-1 text-xs font-bold text-white tracking-wider backdrop-blur-sm">
               HD 1080p

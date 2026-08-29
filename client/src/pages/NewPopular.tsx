@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Camera, MessageCircle, PlaySquare, SearchX } from "lucide-react";
 import { Hero } from "@/components/Hero";
 import { InfoModal } from "@/components/InfoModal";
@@ -138,17 +139,51 @@ export default function NewPopularPage() {
       </div>
 
       <footer className="mx-auto max-w-5xl px-6 pb-14 pt-5 text-xs text-[#777]">
-        <div className="flex gap-6 text-white">
-          <MessageCircle className="size-5" />
-          <Camera className="size-5" />
-          <PlaySquare className="size-5" />
+        <div className="flex items-center gap-6 text-white/80">
+          <a
+            href="https://facebook.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[#e50914] transition-colors"
+            aria-label="Facebook"
+          >
+            <MessageCircle className="size-5" />
+          </a>
+          <a
+            href="https://instagram.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[#e50914] transition-colors"
+            aria-label="Instagram"
+          >
+            <Camera className="size-5" />
+          </a>
+          <a
+            href="https://youtube.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[#e50914] transition-colors"
+            aria-label="YouTube"
+          >
+            <PlaySquare className="size-5" />
+          </a>
         </div>
         <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4">
-          <a href="#">Audio and Subtitles</a>
-          <a href="#">Media Center</a>
-          <a href="#">Privacy</a>
-          <a href="#">Contact Us</a>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Audio and Subtitles</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Media Center</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Privacy</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Contact Us</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Audio Description</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Investor Relations</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Legal Notices</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Cookie Preferences</Link>
         </div>
+        <button
+          onClick={() => alert("Streamly Service Diagnostic Code: 982-411-STREAMLY")}
+          className="mt-7 border border-[#777] px-2 py-1.5 hover:text-white transition-colors"
+        >
+          Service Code
+        </button>
         <p className="mt-5">© 2026 Streamly Entertainment</p>
       </footer>
 

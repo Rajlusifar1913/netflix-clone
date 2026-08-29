@@ -1,11 +1,12 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, Play, Plus, ThumbsUp } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, Play, Plus, ThumbsUp, Volume2, VolumeX } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/components/AppProvider";
 import { imageUrl, mediaTitle, mediaYear } from "@/lib/utils";
 import type { MediaItem } from "@/types/media";
+import { getVideoById } from "@/lib/videoCatalog";
 
 // Mock genre lookup for rich popup tags
 const GENRE_MAP: Record<number, string> = {
@@ -101,17 +102,28 @@ function MovieCard({
   const posterRef = useRef<HTMLButtonElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const [isPlayingTrailer, setIsPlayingTrailer] = useState(false);
+  const [isTrailerMuted, setIsTrailerMuted] = useState(true);
 
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trailerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const videoUrl = useMemo(() => {
+    const item = getVideoById(media.id);
+    return item?.videoUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+  }, [media.id]);
 
   const handleOpenMedia = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    if (trailerTimer.current) clearTimeout(trailerTimer.current);
     setIsHovered(false);
+    setIsPlayingTrailer(false);
     openMedia(media);
   };
 
   const handleMouseEnter = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    if (trailerTimer.current) clearTimeout(trailerTimer.current);
     // Don't open hover popup if InfoModal is currently open
     if (selectedMedia) return;
 
@@ -127,14 +139,21 @@ function MovieCard({
           height: rect.height,
         });
         setIsHovered(true);
+
+        // Start video preview after 1.2s of hovering on the card
+        trailerTimer.current = setTimeout(() => {
+          setIsPlayingTrailer(true);
+        }, 1200);
       }
     }, 260);
   };
 
   const handleMouseLeave = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    if (trailerTimer.current) clearTimeout(trailerTimer.current);
     hoverTimer.current = setTimeout(() => {
       setIsHovered(false);
+      setIsPlayingTrailer(false);
     }, 120);
   };
 
@@ -142,20 +161,25 @@ function MovieCard({
   useEffect(() => {
     if (selectedMedia) {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (trailerTimer.current) clearTimeout(trailerTimer.current);
       setIsHovered(false);
+      setIsPlayingTrailer(false);
     }
   }, [selectedMedia]);
 
   useEffect(() => {
     const handleScroll = () => {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (trailerTimer.current) clearTimeout(trailerTimer.current);
       setIsHovered(false);
+      setIsPlayingTrailer(false);
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
     return () => {
       window.removeEventListener("scroll", handleScroll, { capture: true });
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (trailerTimer.current) clearTimeout(trailerTimer.current);
     };
   }, []);
 
@@ -175,6 +199,20 @@ function MovieCard({
     }
   }
 
+  const [cardTilt, setCardTilt] = useState({ x: 0, y: 0 });
+
+  const handleCardMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width - 0.5) * 16;
+    const y = ((e.clientY - rect.top) / rect.height - 0.5) * -16;
+    setCardTilt({ x, y });
+  };
+
+  const handleCardMouseLeaveRest = () => {
+    setCardTilt({ x: 0, y: 0 });
+    handleMouseLeave();
+  };
+
   return (
     <div
       ref={cardRef}
@@ -186,21 +224,37 @@ function MovieCard({
           : "w-[68vw] sm:w-[38vw] md:w-[29vw] lg:w-[22vw] xl:w-[18vw]"
       }`}
     >
-      {/* Base resting card poster */}
+      {/* Base resting card poster with 3D perspective tilt & specular sheen */}
       <button
         ref={posterRef}
         onClick={handleOpenMedia}
-        className={`block w-full text-left transition-opacity duration-200 ${
+        onMouseMove={handleCardMouseMove}
+        onMouseLeave={handleCardMouseLeaveRest}
+        style={{
+          transform: `perspective(700px) rotateX(${cardTilt.y}deg) rotateY(${cardTilt.x}deg)`,
+          transition: "transform 150ms ease-out, opacity 200ms ease",
+        }}
+        className={`group block w-full text-left transition-opacity duration-200 ${
           isHovered ? "opacity-0" : "opacity-100"
         }`}
       >
-        <div className="relative aspect-video overflow-hidden rounded-md bg-[#252525] shadow-md hover:brightness-110">
+        <div className="relative aspect-video overflow-hidden rounded-xl bg-[#252525] border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.8)] transition-all duration-300 group-hover:border-white/30 group-hover:shadow-[0_20px_40px_rgba(0,0,0,0.95)]">
           <img
             src={imageUrl(media.backdrop_path)}
             alt={mediaTitle(media)}
             loading="lazy"
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
+
+          {/* Dynamic Glare / Specular Sheen sweep */}
+          <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-tr from-transparent via-white/10 to-transparent" />
+
+          {/* Subtle Bottom Vignette */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-80" />
+
+          <p className="absolute bottom-2 left-2.5 right-2.5 truncate text-[11px] font-bold text-white drop-shadow-md">
+            {mediaTitle(media)}
+          </p>
         </div>
       </button>
 
@@ -231,7 +285,7 @@ function MovieCard({
                 transition={{ type: "spring", stiffness: 380, damping: 26 }}
                 className={`w-full rounded-xl bg-[#181818] border border-white/20 shadow-[0_25px_60px_rgba(0,0,0,0.98)] overflow-hidden ${originClass}`}
               >
-                {/* Top Backdrop Image */}
+                {/* Top Backdrop Image or Auto-Playing Trailer Video */}
                 <div
                   className="relative aspect-video w-full cursor-pointer overflow-hidden bg-[#252525]"
                   onClick={handleOpenMedia}
@@ -241,13 +295,43 @@ function MovieCard({
                     alt={mediaTitle(media)}
                     className="h-full w-full object-cover"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent opacity-90" />
+
+                  {/* Auto-playing Trailer Video Overlay */}
+                  {isPlayingTrailer && videoUrl && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.4 }}
+                      className="absolute inset-0 z-10 bg-black"
+                    >
+                      <video
+                        src={videoUrl}
+                        autoPlay
+                        muted={isTrailerMuted}
+                        loop
+                        playsInline
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsTrailerMuted((m) => !m);
+                        }}
+                        className="absolute bottom-2 right-2 z-20 grid size-6 place-items-center rounded-full bg-black/70 border border-white/20 text-white/80 hover:text-white transition shadow-lg"
+                        title={isTrailerMuted ? "Unmute Trailer" : "Mute Trailer"}
+                      >
+                        {isTrailerMuted ? <VolumeX className="size-3" /> : <Volume2 className="size-3" />}
+                      </button>
+                    </motion.div>
+                  )}
+
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent opacity-90 z-20 pointer-events-none" />
                   {rank && (
-                    <div className="absolute top-2 left-2 flex items-center gap-1 rounded bg-[#e50914] px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white shadow-md">
+                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1 rounded bg-[#e50914] px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white shadow-md pointer-events-none">
                       TOP #{rank}
                     </div>
                   )}
-                  <h3 className="absolute bottom-2 left-3 right-3 text-xs font-bold line-clamp-1 drop-shadow-md">
+                  <h3 className="absolute bottom-2 left-3 right-3 z-20 text-xs font-bold line-clamp-1 drop-shadow-md pointer-events-none">
                     {mediaTitle(media)}
                   </h3>
                 </div>
@@ -309,7 +393,7 @@ function MovieCard({
                     </motion.button>
                   </div>
 
-                  {/* Metadata Badges */}
+                  {/* Metadata Badges with Metallic Sheen */}
                   <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-[#aaa]">
                     <span className="font-bold text-[#46d369]">
                       {Math.min(98, Math.round((media.vote_average ?? 7) * 10))}% Match
@@ -318,8 +402,11 @@ function MovieCard({
                       {media.adult ? "18+" : "13+"}
                     </span>
                     <span>{mediaYear(media)}</span>
-                    <span className="rounded border border-white/30 px-1 py-0.2 text-[9px] font-semibold text-white">
-                      HD
+                    <span className="rounded bg-white/10 px-1.5 py-0.2 text-[9px] font-black uppercase text-white tracking-wider">
+                      4K HDR
+                    </span>
+                    <span className="rounded border border-amber-400/40 bg-amber-500/10 px-1 py-0.2 text-[9px] font-bold text-amber-300">
+                      ATMOS
                     </span>
                   </div>
 

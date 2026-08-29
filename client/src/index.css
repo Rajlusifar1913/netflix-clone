@@ -20,6 +20,42 @@ button { cursor: pointer; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .skeleton { background: linear-gradient(90deg, #202020 25%, #303030 50%, #202020 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 
+@keyframes searchGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(229, 9, 20, 0.8);
+    transform: scale(0.95);
+  }
+  50% {
+    box-shadow: 0 0 22px 3px rgba(229, 9, 20, 0.6);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 16px 2px rgba(229, 9, 20, 0.45);
+    transform: scale(1);
+  }
+}
+
+.search-glow-enter {
+  animation: searchGlow 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom sleek dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d0d0d;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #e50914;
+}
+
 @media (max-width: 640px) {
   .hero-vignette { background: linear-gradient(0deg, #141414 0%, rgba(20,20,20,.25) 65%, rgba(0,0,0,.35) 100%); }
 }
+

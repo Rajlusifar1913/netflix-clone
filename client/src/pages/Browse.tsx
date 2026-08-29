@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Camera, MessageCircle, PlaySquare, SearchX } from "lucide-react";
 import { Hero } from "@/components/Hero";
 import { InfoModal } from "@/components/InfoModal";
 import { MovieRow } from "@/components/MovieRow";
 import { Navbar } from "@/components/Navbar";
+import { GenreFilterBar } from "@/components/GenreFilterBar";
 import { useApp } from "@/components/AppProvider";
-import { mediaTitle } from "@/lib/utils";
+import { mediaTitle, imageUrl } from "@/lib/utils";
 import type { BrowseData, MediaItem } from "@/types/media";
 
 // ─── Fallback catalogue (used when TMDB API key isn't set) ────────────────────
@@ -105,7 +107,8 @@ export default function BrowsePage() {
     return buildFallbackData();
   });
   const [query, setQuery] = useState("");
-  const { myList } = useApp();
+  const [activeGenre, setActiveGenre] = useState<number | null>(null);
+  const { myList, watchHistory } = useApp();
 
   useEffect(() => {
     loadBrowseData().then(setData);
@@ -121,8 +124,23 @@ export default function BrowsePage() {
     [data.rows]
   );
 
+  const continueWatching = useMemo(() => {
+    if (!watchHistory.length) return [];
+    return watchHistory.slice(0, 10).map((h) => {
+      const found = catalog.find((item) => item.id === h.id);
+      return found ? { ...found, _progress: h.progress } : null;
+    }).filter(Boolean) as (MediaItem & { _progress: number })[];
+  }, [watchHistory, catalog]);
+
   const filteredRows = useMemo(() => {
-    if (!query.trim()) return data.rows;
+    let rows = data.rows;
+    if (activeGenre !== null) {
+      rows = rows.map((row) => ({
+        ...row,
+        items: row.items.filter((item) => item.genre_ids?.includes(activeGenre)),
+      })).filter((row) => row.items.length > 0);
+    }
+    if (!query.trim()) return rows;
     const term = query.toLowerCase();
     return [
       {
@@ -134,16 +152,56 @@ export default function BrowsePage() {
         ),
       },
     ];
-  }, [query, data.rows, catalog]);
+  }, [query, activeGenre, data.rows, catalog]);
 
   const listItems = catalog.filter((item) => myList.includes(item.id));
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#141414] text-white">
       <Navbar onSearch={setQuery} />
-      <Hero media={data.featured} />
+      <Hero media={data.featured} items={data.rows[0]?.items} />
 
       <div id="catalog" className="relative z-10 mt-2 pb-6">
+        {/* Genre filter bar */}
+        {!query && (
+          <div className="mb-4">
+            <GenreFilterBar items={catalog} activeGenre={activeGenre} onGenreChange={setActiveGenre} />
+          </div>
+        )}
+
+        {/* Continue Watching row */}
+        {!query && continueWatching.length > 0 && (
+          <div className="px-4 sm:px-6 mb-4">
+            <h2 className="mb-3 text-base font-bold text-white">Continue Watching</h2>
+            <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
+              {continueWatching.map((item) => (
+                <Link
+                  key={item.id}
+                  to={`/watch?id=${item.id}&title=${encodeURIComponent(mediaTitle(item))}`}
+                  state={{ media: item }}
+                  className="group relative shrink-0 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] transition hover:scale-105 hover:border-white/20"
+                >
+                  <img
+                    src={imageUrl(item.backdrop_path ?? item.poster_path, "w500")}
+                    alt={mediaTitle(item)}
+                    className="aspect-video w-full object-cover"
+                  />
+                  {/* Progress bar */}
+                  <div className="absolute bottom-6 inset-x-0 h-1 bg-white/20">
+                    <div
+                      className="h-full bg-[#e50914] rounded-full"
+                      style={{ width: `${item._progress}%` }}
+                    />
+                  </div>
+                  <div className="p-2">
+                    <p className="truncate text-xs font-semibold text-white">{mediaTitle(item)}</p>
+                    <p className="text-[10px] text-[#888]">{item._progress}% watched</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
         {query && filteredRows[0].items.length === 0 ? (
           <div className="mx-auto flex min-h-[300px] max-w-xl flex-col items-center justify-center px-6 text-center">
             <SearchX className="size-12 text-[#666]" />
@@ -170,22 +228,49 @@ export default function BrowsePage() {
       </div>
 
       <footer className="mx-auto max-w-5xl px-6 pb-14 pt-5 text-xs text-[#777]">
-        <div className="flex gap-6 text-white">
-          <MessageCircle className="size-5" />
-          <Camera className="size-5" />
-          <PlaySquare className="size-5" />
+        <div className="flex items-center gap-6 text-white/80">
+          <a
+            href="https://facebook.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[#e50914] transition-colors"
+            aria-label="Facebook"
+          >
+            <MessageCircle className="size-5" />
+          </a>
+          <a
+            href="https://instagram.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[#e50914] transition-colors"
+            aria-label="Instagram"
+          >
+            <Camera className="size-5" />
+          </a>
+          <a
+            href="https://youtube.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[#e50914] transition-colors"
+            aria-label="YouTube"
+          >
+            <PlaySquare className="size-5" />
+          </a>
         </div>
         <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4">
-          <a href="#">Audio and Subtitles</a>
-          <a href="#">Media Center</a>
-          <a href="#">Privacy</a>
-          <a href="#">Contact Us</a>
-          <a href="#">Audio Description</a>
-          <a href="#">Investor Relations</a>
-          <a href="#">Legal Notices</a>
-          <a href="#">Cookie Preferences</a>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Audio and Subtitles</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Media Center</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Privacy</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Contact Us</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Audio Description</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Investor Relations</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Legal Notices</Link>
+          <Link to="/help" className="hover:underline hover:text-[#ccc]">Cookie Preferences</Link>
         </div>
-        <button className="mt-7 border border-[#777] px-2 py-1.5 hover:text-white">
+        <button
+          onClick={() => alert("Streamly Service Diagnostic Code: 982-411-STREAMLY")}
+          className="mt-7 border border-[#777] px-2 py-1.5 hover:text-white transition-colors"
+        >
           Service Code
         </button>
         <p className="mt-5">© 2026 Streamly Entertainment</p>
