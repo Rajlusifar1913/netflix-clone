@@ -137,8 +137,8 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       otpExpiresAt: otpExpires,
     });
 
-    // Automatically create default profile for the user
-    await Profile.create({
+    // Create default profile for the user in parallel
+    const profilePromise = Profile.create({
       user: newUser._id,
       name: newUser.name.split(' ')[0] || 'Primary',
       avatar: 'linear-gradient(135deg,#0072d2,#62d5ff)',
@@ -146,8 +146,12 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       isKids: false,
     });
 
-    // Dispatch verification OTP email
-    await sendOtpEmail(newUser.email, otp, 'verification');
+    // Dispatch verification OTP email in background (non-blocking for instant API response)
+    sendOtpEmail(newUser.email, otp, 'verification').catch((err) => {
+      console.error('Background OTP email dispatch error:', err);
+    });
+
+    await profilePromise;
 
     res.status(201).json({
       status: 'success',
@@ -187,8 +191,10 @@ export const verifyEmail = async (req: Request, res: Response, next: NextFunctio
     user.otpExpiresAt = null;
     await user.save({ validateBeforeSave: false });
 
-    // Seed onboarding notifications
-    await seedWelcomeNotifications(user._id);
+    // Seed onboarding notifications in background (non-blocking)
+    seedWelcomeNotifications(user._id).catch((err) => {
+      console.error('Background notification seeding error:', err);
+    });
 
     // Issue session JWT cookies and log in user
     await sendTokenResponse(user, 200, res, 'Email verified successfully. Welcome to Streamly!');
@@ -230,7 +236,10 @@ export const resendVerificationOtp = async (req: Request, res: Response, next: N
     user.otpExpiresAt = otpExpires;
     await user.save({ validateBeforeSave: false });
 
-    await sendOtpEmail(user.email, otp, 'verification');
+    // Dispatch verification OTP email in background (non-blocking)
+    sendOtpEmail(user.email, otp, 'verification').catch((err) => {
+      console.error('Background OTP resend error:', err);
+    });
 
     res.status(200).json({
       status: 'success',
@@ -257,7 +266,11 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       user.otpCode = crypto.createHash('sha256').update(otp).digest('hex');
       user.otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await user.save({ validateBeforeSave: false });
-      await sendOtpEmail(user.email, otp, 'verification');
+
+      // Dispatch in background
+      sendOtpEmail(user.email, otp, 'verification').catch((err) => {
+        console.error('Background OTP email error on login:', err);
+      });
 
       res.status(403).json({
         status: 'fail',
@@ -560,8 +573,10 @@ export const forgotPasswordOtp = async (req: Request, res: Response, next: NextF
     user.otpExpiresAt = otpExpires;
     await user.save({ validateBeforeSave: false });
 
-    // Send email using Nodemailer
-    await sendOtpEmail(user.email, otp, 'reset');
+    // Send email in background (non-blocking)
+    sendOtpEmail(user.email, otp, 'reset').catch((err) => {
+      console.error('Background forgot password OTP email error:', err);
+    });
 
     res.status(200).json({
       status: 'success',

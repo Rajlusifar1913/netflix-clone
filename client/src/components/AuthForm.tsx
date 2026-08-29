@@ -107,8 +107,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         text: mode === "register" ? "Account created. Welcome to Streamly!" : "Welcome back!",
       });
 
-      // Small delay so the success message is visible before navigating
-      setTimeout(() => navigate("/browse"), 700);
+      setTimeout(() => navigate("/browse"), 200);
     } catch (error) {
       setMessage({
         type: "error",
@@ -136,7 +135,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         type: "success",
         text: "Email verified successfully! Welcome to Streamly.",
       });
-      setTimeout(() => navigate("/browse"), 700);
+      setTimeout(() => navigate("/browse"), 200);
     } catch (err) {
       setMessage({
         type: "error",

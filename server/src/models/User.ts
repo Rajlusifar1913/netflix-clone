@@ -175,6 +175,9 @@ const userSchema = new Schema<IUser>(
   }
 );
 
+// Compound index for instant OTP verification lookups
+userSchema.index({ email: 1, otpCode: 1 });
+
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password') || !this.password) {
     return next();
