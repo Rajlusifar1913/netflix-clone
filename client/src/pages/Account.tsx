@@ -95,7 +95,10 @@ export default function AccountPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  const [notifications, setNotifications] = useState([
+  const userKey = session?.user?.email?.toLowerCase().trim() || session?.user?.id || "default";
+  const readNotifsKey = `streamly_read_notifs_${userKey}`;
+
+  const INITIAL_ACCOUNT_NOTIFICATIONS = [
     {
       id: "n1",
       title: "New 4K Release",
@@ -124,9 +127,42 @@ export default function AccountPage() {
       time: "5 days ago",
       unread: false,
     },
-  ]);
+  ];
+
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const readIds = (JSON.parse(localStorage.getItem(readNotifsKey) || "[]") as string[]) || [];
+      return INITIAL_ACCOUNT_NOTIFICATIONS.map((n) => ({
+        ...n,
+        unread: readIds.includes(n.id) ? false : n.unread,
+      }));
+    } catch {
+      return INITIAL_ACCOUNT_NOTIFICATIONS;
+    }
+  });
 
   const unreadCount = notifications.filter((n) => n.unread).length;
+
+  const handleToggleNotifications = () => {
+    const nextState = !notifOpen;
+    setNotifOpen(nextState);
+    setMenuOpen(false);
+
+    if (nextState && unreadCount > 0) {
+      setNotifications((prev) => {
+        const updated = prev.map((n) => ({ ...n, unread: false }));
+        try {
+          const allIds = updated.map((n) => n.id);
+          localStorage.setItem(readNotifsKey, JSON.stringify(allIds));
+        } catch { /* ignore */ }
+        return updated;
+      });
+
+      try {
+        apiRequest("/notifications/mark-all-read", { method: "PATCH" }).catch(() => {});
+      } catch { /* ignore */ }
+    }
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,7 +172,17 @@ export default function AccountPage() {
   };
 
   const markAllNotificationsAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setNotifications((prev) => {
+      const updated = prev.map((n) => ({ ...n, unread: false }));
+      try {
+        const allIds = updated.map((n) => n.id);
+        localStorage.setItem(readNotifsKey, JSON.stringify(allIds));
+      } catch { /* ignore */ }
+      return updated;
+    });
+    try {
+      apiRequest("/notifications/mark-all-read", { method: "PATCH" }).catch(() => {});
+    } catch { /* ignore */ }
   };
 
   // Close search bar on outside click only if there's no text entered
@@ -347,10 +393,7 @@ export default function AccountPage() {
           {/* Functional Notifications Bell with Popover */}
           <div className="relative">
             <button
-              onClick={() => {
-                setNotifOpen(!notifOpen);
-                setMenuOpen(false);
-              }}
+              onClick={handleToggleNotifications}
               aria-label="Notifications"
               className="relative text-[#ccc] hover:text-white transition-colors focus:outline-none"
               title="Notifications"
