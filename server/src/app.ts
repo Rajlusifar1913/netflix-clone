@@ -22,13 +22,28 @@ export const createApp = (): express.Application => {
   // Security HTTP Headers
   app.use(helmet());
 
-  // CORS configuration
+  // CORS configuration — supports comma-separated origins, Vercel deployments, and local dev
+  const configuredOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
+
   app.use(
     cors({
-      origin: env.CORS_ORIGIN,
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (
+          configuredOrigins.includes(origin) ||
+          configuredOrigins.includes('*') ||
+          origin.includes('localhost') ||
+          origin.includes('127.0.0.1') ||
+          origin.endsWith('.vercel.app') ||
+          origin.endsWith('.onrender.com')
+        ) {
+          return callback(null, true);
+        }
+        callback(null, false);
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Range'],
     })
   );
 
@@ -56,8 +71,8 @@ export const createApp = (): express.Application => {
   // Apply General Rate Limiter to API routes
   app.use('/api', apiLimiter);
 
-  // Health Check Endpoint
-  app.get('/health', (_req: Request, res: Response) => {
+  // Root & Health Check Endpoints (for Render, uptime monitors, and status probes)
+  const getServiceStatus = () => {
     const dbState = mongoose.connection.readyState;
     const dbStatusMap: Record<number, string> = {
       0: 'disconnected',
@@ -66,7 +81,7 @@ export const createApp = (): express.Application => {
       3: 'disconnecting',
     };
 
-    res.status(200).json({
+    return {
       status: 'ok',
       service: 'Streamly Backend API',
       version: '1.0.0',
@@ -76,7 +91,19 @@ export const createApp = (): express.Application => {
         status: dbStatusMap[dbState] || 'unknown',
         name: mongoose.connection.name || 'none',
       },
-    });
+    };
+  };
+
+  app.get('/', (_req: Request, res: Response) => {
+    res.status(200).json(getServiceStatus());
+  });
+
+  app.head('/', (_req: Request, res: Response) => {
+    res.status(200).end();
+  });
+
+  app.get('/health', (_req: Request, res: Response) => {
+    res.status(200).json(getServiceStatus());
   });
 
   // API v1 Routes

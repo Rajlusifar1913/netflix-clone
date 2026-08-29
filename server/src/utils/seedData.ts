@@ -69,6 +69,7 @@ const seedDatabase = async () => {
       email: 'demo@streamly.com',
       password: 'Password123',
       role: 'user',
+      isVerified: true,
       subscription: {
         status: 'active',
         planId: 'premium',
@@ -86,6 +87,7 @@ const seedDatabase = async () => {
       email: 'admin@streamly.com',
       password: 'AdminPassword123',
       role: 'admin',
+      isVerified: true,
       subscription: {
         status: 'active',
         planId: 'premium',
@@ -113,6 +115,7 @@ const seedDatabase = async () => {
         email: su.email,
         password: 'Password123',
         role: 'user',
+        isVerified: true,
         subscription: {
           status: su.status,
           planId: su.planId,
