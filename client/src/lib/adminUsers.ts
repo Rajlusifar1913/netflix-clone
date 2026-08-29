@@ -90,195 +90,14 @@ function futureDateISO(daysAhead = 30): string {
   return new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000).toISOString();
 }
 
-const DEFAULT_USERS_SEED: AdminManagedUser[] = [
-  {
-    id: "usr_admin",
-    name: "Admin User",
-    email: "admin@streamly.com",
-    role: "admin",
-    planId: "premium",
-    planName: "Ultra 4K HDR",
-    status: "active",
-    authProvider: "local",
-    avatar: "linear-gradient(135deg,#e50914,#ff3b30)",
-    createdAt: "2024-01-01T00:00:00Z",
-    lastActive: "Active Now",
-    totalViews: 240,
-    subscription: {
-      status: "active",
-      planId: "premium",
-      planName: "Ultra 4K HDR",
-      planSpecs: "Ultra HD 4K + HDR (4 Screens at once)",
-      price: "₹649 / mo",
-      monthlyAmount: 649,
-      screens: 4,
-      quality: "4K + HDR Ultra HD",
-      cardLast4: "4242",
-      cardBrand: "visa",
-      billingCycle: "yearly",
-      currentPeriodEnd: futureDateISO(365),
-      cancelAtPeriodEnd: false,
-      isComplimentary: true,
-    },
-  },
-  {
-    id: "usr_1",
-    name: "Jane Doe",
-    email: "jane.doe@streamly.io",
-    role: "user",
-    planId: "premium",
-    planName: "Ultra 4K HDR",
-    status: "active",
-    authProvider: "local",
-    avatar: "linear-gradient(135deg,#e50914,#b81d24)",
-    createdAt: "2024-01-15T08:30:00Z",
-    lastActive: "Just now",
-    totalViews: 84,
-    subscription: {
-      status: "active",
-      planId: "premium",
-      planName: "Ultra 4K HDR",
-      planSpecs: "Ultra HD 4K + HDR (4 Screens at once)",
-      price: "₹649 / mo",
-      monthlyAmount: 649,
-      screens: 4,
-      quality: "4K + HDR Ultra HD",
-      cardLast4: "4242",
-      cardBrand: "visa",
-      billingCycle: "monthly",
-      currentPeriodEnd: futureDateISO(24),
-      cancelAtPeriodEnd: false,
-    },
-  },
-  {
-    id: "usr_2",
-    name: "Alex Rivera",
-    email: "alex.rivera@example.com",
-    role: "user",
-    planId: "premium",
-    planName: "Ultra 4K HDR",
-    status: "active",
-    authProvider: "google",
-    avatar: "linear-gradient(135deg,#0072d2,#62d5ff)",
-    createdAt: "2024-01-20T14:15:00Z",
-    lastActive: "12 mins ago",
-    totalViews: 112,
-    subscription: {
-      status: "active",
-      planId: "premium",
-      planName: "Ultra 4K HDR",
-      planSpecs: "Ultra HD 4K + HDR (4 Screens at once)",
-      price: "₹649 / mo",
-      monthlyAmount: 649,
-      screens: 4,
-      quality: "4K + HDR Ultra HD",
-      cardLast4: "8890",
-      cardBrand: "mastercard",
-      billingCycle: "monthly",
-      currentPeriodEnd: futureDateISO(18),
-      cancelAtPeriodEnd: false,
-    },
-  },
-  {
-    id: "usr_3",
-    name: "Sarah Connor",
-    email: "sarah.c@gmail.com",
-    role: "user",
-    planId: "standard",
-    planName: "Standard 1080p",
-    status: "active",
-    authProvider: "local",
-    avatar: "linear-gradient(135deg,#10b981,#059669)",
-    createdAt: "2024-02-01T10:00:00Z",
-    lastActive: "1 hour ago",
-    totalViews: 65,
-    subscription: {
-      status: "active",
-      planId: "standard",
-      planName: "Standard 1080p",
-      planSpecs: "Full HD 1080p (2 Screens at once)",
-      price: "₹499 / mo",
-      monthlyAmount: 499,
-      screens: 2,
-      quality: "1080p Full HD",
-      cardLast4: "1122",
-      cardBrand: "amex",
-      billingCycle: "monthly",
-      currentPeriodEnd: futureDateISO(15),
-      cancelAtPeriodEnd: false,
-    },
-  },
-  {
-    id: "usr_4",
-    name: "Michael Scott",
-    email: "michael.s@dundermifflin.com",
-    role: "user",
-    planId: "mobile",
-    planName: "Mobile 720p",
-    status: "suspended",
-    authProvider: "local",
-    avatar: "linear-gradient(135deg,#8b5cf6,#6d28d9)",
-    createdAt: "2024-02-10T16:45:00Z",
-    lastActive: "3 days ago",
-    totalViews: 38,
-    subscription: {
-      status: "past_due",
-      planId: "mobile",
-      planName: "Mobile 720p",
-      planSpecs: "720p HD (1 Screen on Mobile/Tablet)",
-      price: "₹149 / mo",
-      monthlyAmount: 149,
-      screens: 1,
-      quality: "480p/720p SD",
-      cardLast4: "9911",
-      cardBrand: "visa",
-      billingCycle: "monthly",
-      currentPeriodEnd: futureDateISO(-2),
-      cancelAtPeriodEnd: true,
-    },
-  },
-  {
-    id: "usr_5",
-    name: "Elena Gilbert",
-    email: "elena.g@mysticfalls.org",
-    role: "user",
-    planId: "standard",
-    planName: "Standard 1080p",
-    status: "active",
-    authProvider: "google",
-    avatar: "linear-gradient(135deg,#f59e0b,#d97706)",
-    createdAt: "2024-02-18T11:20:00Z",
-    lastActive: "4 hours ago",
-    totalViews: 93,
-    subscription: {
-      status: "active",
-      planId: "standard",
-      planName: "Standard 1080p",
-      planSpecs: "Full HD 1080p (2 Screens at once)",
-      price: "₹499 / mo",
-      monthlyAmount: 499,
-      screens: 2,
-      quality: "1080p Full HD",
-      cardLast4: "4242",
-      cardBrand: "visa",
-      billingCycle: "monthly",
-      currentPeriodEnd: futureDateISO(28),
-      cancelAtPeriodEnd: false,
-    },
-  },
-];
-
 /**
- * Returns all users in the system, combining mockAuth registered users + managed users
+ * Returns all users in the system from admin storage
  */
 export function getAllAdminUsers(): AdminManagedUser[] {
   try {
     let managed: AdminManagedUser[] = [];
     const raw = localStorage.getItem(MANAGED_USERS_KEY);
-    if (!raw) {
-      managed = DEFAULT_USERS_SEED;
-      localStorage.setItem(MANAGED_USERS_KEY, JSON.stringify(DEFAULT_USERS_SEED));
-    } else {
+    if (raw) {
       managed = JSON.parse(raw) as AdminManagedUser[];
     }
 
@@ -316,50 +135,9 @@ export function getAllAdminUsers(): AdminManagedUser[] {
       localStorage.setItem(MANAGED_USERS_KEY, JSON.stringify(managed));
     }
 
-    // Sync with `streamly_users` (from mockAuth registration)
-    const rawAuthUsers = localStorage.getItem(USERS_KEY);
-    if (rawAuthUsers) {
-      const authUsers = JSON.parse(rawAuthUsers) as { id: string; name: string; email: string }[];
-      authUsers.forEach((au) => {
-        const exists = managed.some((m) => m.email.toLowerCase() === au.email.toLowerCase());
-        if (!exists) {
-          const cfg = getPlanConfig("premium");
-          managed.unshift({
-            id: au.id || `usr_${Date.now()}`,
-            name: au.name || "Member",
-            email: au.email,
-            role: "user",
-            planId: "premium",
-            planName: cfg.name,
-            status: "active",
-            authProvider: "local",
-            avatar: "linear-gradient(135deg,#0072d2,#62d5ff)",
-            createdAt: new Date().toISOString(),
-            lastActive: "Recent",
-            totalViews: 1,
-            subscription: {
-              status: "active",
-              planId: "premium",
-              planName: cfg.name,
-              planSpecs: cfg.specs,
-              price: cfg.price,
-              monthlyAmount: cfg.monthlyAmount,
-              screens: cfg.screens,
-              quality: cfg.quality,
-              cardLast4: "4242",
-              cardBrand: "visa",
-              billingCycle: "monthly",
-              currentPeriodEnd: futureDateISO(30),
-              cancelAtPeriodEnd: false,
-            },
-          });
-        }
-      });
-    }
-
     return managed;
   } catch {
-    return DEFAULT_USERS_SEED;
+    return [];
   }
 }
 

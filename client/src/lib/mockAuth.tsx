@@ -18,14 +18,6 @@ import { apiRequest, setSessionFlag, hasSession, setStoredToken } from "./api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface StoredUser {
-  id: string;
-  name: string;
-  email: string;
-  passwordHash: string; // simple base64 encoding (local fallback only)
-  image?: string;
-}
-
 export interface Session {
   user: {
     id: string;
@@ -47,20 +39,7 @@ interface SessionContextValue extends SessionState {
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
-const USERS_KEY = "streamly_users";
 const SESSION_KEY = "streamly_session";
-
-function getUsers(): StoredUser[] {
-  try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) ?? "[]") as StoredUser[];
-  } catch {
-    return [];
-  }
-}
-
-function saveUsers(users: StoredUser[]) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
 
 function getSession(): Session | null {
   try {
@@ -77,17 +56,6 @@ function saveSession(session: Session | null) {
   } else {
     sessionStorage.removeItem(SESSION_KEY);
   }
-}
-
-// Simple reversible obfuscation — local fallback only; real server uses bcrypt
-function encode(plain: string): string {
-  return btoa(plain);
-}
-function verify(plain: string, hash: string): boolean {
-  return encode(plain) === hash;
-}
-function uuid(): string {
-  return crypto.randomUUID();
 }
 
 // ─── Google GIS helpers ───────────────────────────────────────────────────────
@@ -326,7 +294,7 @@ export async function signIn(
 
   const { email = "", password = "" } = options ?? {};
 
-  // 1. Try Backend Authentication
+  // 1. Backend Authentication
   try {
     const res = await apiRequest<{
       token?: string;
@@ -353,45 +321,13 @@ export async function signIn(
     window.dispatchEvent(new Event("streamly:session-change"));
     return { ok: true, error: null };
   } catch (backendError) {
-    let lastError: string | null = null;
     if (backendError instanceof Error) {
       if (backendError.message.toLowerCase().includes("verify your email")) {
         return { ok: false, error: backendError.message, requiresVerification: true, email };
       }
-      if (backendError.message.includes("Invalid email or password")) {
-        return { ok: false, error: backendError.message };
-      }
-      lastError = backendError.message;
+      return { ok: false, error: backendError.message };
     }
-
-    // 2. Local Fallback Auth
-    const users = getUsers();
-    const user = users.find((u) => u.email === email.toLowerCase().trim());
-
-    if (user && verify(password, user.passwordHash)) {
-      const session: Session = {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.email.toLowerCase() === "admin@streamly.com" || user.id === "usr_admin" ? "admin" : "user",
-          image: user.image,
-        },
-      };
-      saveSession(session);
-      window.dispatchEvent(new Event("streamly:session-change"));
-      return { ok: true, error: null };
-    }
-
-    // If local user wasn't found and we had a backend connection error, show connection guidance
-    if (lastError && (lastError.includes("Failed to fetch") || lastError.includes("NetworkError") || lastError.includes("network"))) {
-      return {
-        ok: false,
-        error: "Backend server is waking up or unreachable. Please wait ~30 seconds and try again.",
-      };
-    }
-
-    return { ok: false, error: lastError || "Email or password is incorrect." };
+    return { ok: false, error: "Invalid email or password." };
   }
 }
 
@@ -457,14 +393,13 @@ export async function resendVerificationEmailOtp(
 }
 
 /**
- * registerUser — creates a new account via backend or localStorage fallback.
+ * registerUser — creates a new account via live backend API.
  */
 export async function registerUser(
   name: string,
   email: string,
   password: string
 ): Promise<{ ok: boolean; requiresVerification?: boolean; email?: string; error?: string }> {
-  // 1. Try Backend Registration
   try {
     const res = await apiRequest<{
       status: string;
@@ -480,25 +415,10 @@ export async function registerUser(
     }
     return { ok: true };
   } catch (err) {
-    if (err instanceof Error && err.message.includes("already exists")) {
-      return { ok: false, error: err.message };
-    }
-
-    // 2. Local Fallback Registration
-    const users = getUsers();
-    const normalEmail = email.toLowerCase().trim();
-    if (users.some((u) => u.email === normalEmail)) {
-      return { ok: false, error: "An account with this email already exists." };
-    }
-
-    const newUser: StoredUser = {
-      id: uuid(),
-      name: name.trim(),
-      email: normalEmail,
-      passwordHash: encode(password),
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Registration failed.",
     };
-    saveUsers([...users, newUser]);
-    return { ok: true };
   }
 }
 

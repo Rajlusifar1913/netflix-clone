@@ -49,67 +49,11 @@ export interface TopVideoStats {
 
 const SESSIONS_STORAGE_KEY = "streamly_view_sessions";
 
-// Generate initial realistic seed sessions for the past 14 days
-function generateSeedSessions(): ViewSession[] {
-  const catalog = getCatalogVideos();
-  const sessions: ViewSession[] = [];
-  const devices: ViewSession["device"][] = [
-    "Desktop (Chrome)",
-    "Desktop (Chrome)",
-    "Mobile (iOS)",
-    "Mobile (Android)",
-    "Smart TV (Tizen)",
-  ];
-  const userEmails = [
-    "alex.rivera@example.com",
-    "jane.doe@streamly.io",
-    "sarah.c@gmail.com",
-    "michael.s@dundermifflin.com",
-    "elena.g@mysticfalls.org",
-    "demo.user@streamly.app",
-  ];
-
-  const now = Date.now();
-  let counter = 1;
-
-  for (let d = 13; d >= 0; d--) {
-    const dayTimestamp = now - d * 24 * 60 * 60 * 1000;
-    // Generate between 8 and 18 view sessions per day for richness
-    const sessionCount = Math.floor(10 + Math.sin(d) * 4 + (13 - d) * 0.8);
-
-    for (let s = 0; s < sessionCount; s++) {
-      const video = catalog[Math.floor(Math.random() * catalog.length)];
-      const totalDur = (video.durationMinutes || 120) * 60;
-      const watchTime = Math.min(totalDur, Math.floor(totalDur * (0.35 + Math.random() * 0.65)));
-      const completion = Math.round((watchTime / totalDur) * 100);
-
-      sessions.push({
-        id: `sess_${counter++}`,
-        videoId: video.id,
-        videoTitle: video.title || (video.name ?? "Untitled"),
-        durationSeconds: totalDur,
-        watchTimeSeconds: watchTime,
-        completed: completion >= 85,
-        completionRate: completion,
-        userId: `usr_${(counter % 6) + 1}`,
-        userEmail: userEmails[counter % userEmails.length],
-        profileName: ["Alex", "Jane", "Sarah", "Michael", "Elena"][counter % 5],
-        device: devices[Math.floor(Math.random() * devices.length)],
-        timestamp: new Date(dayTimestamp + s * 3600 * 1000 + Math.random() * 1800000).toISOString(),
-      });
-    }
-  }
-
-  return sessions;
-}
-
 export function getViewSessions(): ViewSession[] {
   try {
     const raw = localStorage.getItem(SESSIONS_STORAGE_KEY);
     if (!raw) {
-      const seeded = generateSeedSessions();
-      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(seeded));
-      return seeded;
+      return [];
     }
     const parsed = JSON.parse(raw) as ViewSession[];
     return Array.isArray(parsed) ? parsed : [];
@@ -379,6 +323,5 @@ export function exportAnalyticsCSV(): void {
 }
 
 export function resetAnalyticsData(): void {
-  const seeded = generateSeedSessions();
-  saveViewSessions(seeded);
+  saveViewSessions([]);
 }

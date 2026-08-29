@@ -65,22 +65,21 @@ export function getDefaultProfilesForUser(session?: Session | null): ProfileItem
     ];
   }
 
-  // Normal User / Demo User / Standard User
-  const isDemo = email === "demo@streamly.com";
-  const adultName = isDemo ? "Alex" : (session?.user?.name?.trim() || "Alex");
-  const adultFace = adultName.charAt(0).toUpperCase() || "A";
-  const kidsName = isDemo ? "Kids" : `${adultName.split(" ")[0]} Kids`;
+  // Standard User
+  const adultName = session?.user?.name?.trim() || "Primary";
+  const adultFace = adultName.charAt(0).toUpperCase() || "P";
+  const kidsName = `${adultName.split(" ")[0]} Kids`;
 
   return [
     {
-      id: isDemo ? "demo_adult" : `user_adult_${session?.user?.id || "default"}`,
+      id: `user_adult_${session?.user?.id || "default"}`,
       name: adultName,
       avatar: "linear-gradient(135deg,#0072d2,#62d5ff)",
       face: adultFace,
       kids: false,
     },
     {
-      id: isDemo ? "demo_kids" : `user_kids_${session?.user?.id || "default"}`,
+      id: `user_kids_${session?.user?.id || "default"}`,
       name: kidsName,
       avatar: "linear-gradient(135deg,#6d28d9,#d946ef)",
       face: "★",
@@ -105,10 +104,6 @@ export default function ProfilesPage() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // If previous 4-item global mock list was stored, clean it up with the 2-item user-specific defaults
-          if (parsed.length === 4 && parsed[0]?.name === "Alex" && parsed[1]?.name === "Morgan") {
-            return getDefaultProfilesForUser(session);
-          }
           return parsed;
         }
       }
@@ -143,12 +138,6 @@ export default function ProfilesPage() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          if (parsed.length === 4 && parsed[0]?.name === "Alex" && parsed[1]?.name === "Morgan") {
-            const defaults = getDefaultProfilesForUser(session);
-            setProfiles(defaults);
-            localStorage.setItem(storageKey, JSON.stringify(defaults));
-            return;
-          }
           setProfiles(parsed);
           return;
         }

@@ -243,13 +243,12 @@ export default function WatchPage() {
     return similar[0] ?? list[0];
   }, [allCatalog, mediaId, currentMedia]);
 
-  const MOCK_TV_SEASONS = [
+  const tvSeasons = useMemo(() => [
     { season: 1, episodes: 8 },
-    { season: 2, episodes: 10 },
-    { season: 3, episodes: 10 },
-    { season: 4, episodes: 12 },
-  ];
-  const currentSeasonEpisodes = MOCK_TV_SEASONS.find((s) => s.season === selectedSeason)?.episodes ?? 8;
+    { season: 2, episodes: 8 },
+    { season: 3, episodes: 6 },
+  ], []);
+  const currentSeasonEpisodes = tvSeasons.find((s) => s.season === selectedSeason)?.episodes ?? 8;
 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
@@ -670,7 +669,7 @@ export default function WatchPage() {
               <button onClick={() => setShowEpisodes(false)} className="text-white/50 hover:text-white transition text-lg">✕</button>
             </div>
             <div className="flex gap-2 px-4 py-3 border-b border-white/10">
-              {MOCK_TV_SEASONS.map((s) => (
+              {tvSeasons.map((s) => (
                 <button
                   key={s.season}
                   onClick={() => setSelectedSeason(s.season)}

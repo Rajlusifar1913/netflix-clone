@@ -8,22 +8,6 @@ import { imageUrl, mediaTitle } from "@/lib/utils";
 import { getCatalogVideos, GENRE_MAP } from "@/lib/videoCatalog";
 import type { MediaItem } from "@/types/media";
 
-const MOCK_CAST = [
-  { name: "Alex Rivera", role: "Lead" },
-  { name: "Jordan Chen", role: "Supporting" },
-  { name: "Sam Patel", role: "Supporting" },
-  { name: "Morgan Lee", role: "Co-Star" },
-  { name: "Casey Quinn", role: "Guest Star" },
-  { name: "Drew Collins", role: "Recurring" },
-];
-
-const MOCK_TV_SEASONS = [
-  { season: 1, episodes: 8 },
-  { season: 2, episodes: 10 },
-  { season: 3, episodes: 10 },
-  { season: 4, episodes: 12 },
-];
-
 export default function TitleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -36,6 +20,14 @@ export default function TitleDetailPage() {
     const numId = Number(id);
     return catalog.find((item) => item.id === numId) ?? catalog[0];
   }, [id, catalog]);
+
+  const tvSeasons = useMemo(() => [
+    { season: 1, episodes: 8 },
+    { season: 2, episodes: 8 },
+    { season: 3, episodes: 6 },
+  ], []);
+
+  const episodeCount = tvSeasons.find((s) => s.season === selectedSeason)?.episodes ?? 8;
 
   const similar = useMemo(() => {
     if (!media) return [];
@@ -71,8 +63,6 @@ export default function TitleDetailPage() {
       isInList ? "info" : "success"
     );
   };
-
-  const episodeCount = MOCK_TV_SEASONS.find((s) => s.season === selectedSeason)?.episodes ?? 8;
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#0d0d0d] text-white">
@@ -200,29 +190,6 @@ export default function TitleDetailPage() {
           </motion.div>
         </div>
 
-        {/* Cast */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.5 }}
-          className="mt-14"
-        >
-          <h2 className="mb-4 text-lg font-bold">Cast</h2>
-          <div className="flex flex-wrap gap-3">
-            {MOCK_CAST.map((c) => (
-              <div key={c.name} className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#1a1a1a]/80 px-3 py-2 text-xs">
-                <div className="size-7 rounded-full bg-gradient-to-br from-[#e50914]/30 to-[#e50914]/10 border border-[#e50914]/20 flex items-center justify-center font-bold text-[#e50914] text-[10px]">
-                  {c.name.split(" ").map((n) => n[0]).join("")}
-                </div>
-                <div>
-                  <p className="font-semibold text-white">{c.name}</p>
-                  <p className="text-[#777]">{c.role}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.section>
-
         {/* Episodes (TV only) */}
         {isTV && (
           <motion.section
@@ -234,7 +201,7 @@ export default function TitleDetailPage() {
             <div className="flex flex-wrap items-center gap-4 mb-5">
               <h2 className="text-lg font-bold">Episodes</h2>
               <div className="flex gap-2">
-                {MOCK_TV_SEASONS.map((s) => (
+                {tvSeasons.map((s) => (
                   <button
                     key={s.season}
                     onClick={() => setSelectedSeason(s.season)}
