@@ -14,7 +14,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { apiRequest, setSessionFlag, hasSession } from "./api";
+import { apiRequest, setSessionFlag, hasSession, setStoredToken } from "./api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -287,7 +287,9 @@ export async function signIn(
         body: JSON.stringify({ idToken }),
       });
 
-      // SEC-1: setSessionFlag marks that the httpOnly cookie session is active
+      if (res.token) {
+        setStoredToken(res.token);
+      }
       setSessionFlag(true);
       const session: Session = {
         user: {
@@ -327,13 +329,16 @@ export async function signIn(
   // 1. Try Backend Authentication
   try {
     const res = await apiRequest<{
-      token: string;
+      token?: string;
       data: { user: { id: string; name: string; email: string; role?: string; avatar?: string } };
     }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
 
+    if (res.token) {
+      setStoredToken(res.token);
+    }
     setSessionFlag(true);
     const session: Session = {
       user: {
@@ -393,12 +398,16 @@ export async function verifyEmailOtp(
     const res = await apiRequest<{
       status: string;
       message: string;
+      token?: string;
       data: { user: { id: string; name: string; email: string; avatar?: string } };
     }>("/auth/verify-email", {
       method: "POST",
       body: JSON.stringify({ email, otp }),
     });
 
+    if (res.token) {
+      setStoredToken(res.token);
+    }
     setSessionFlag(true);
     const session: Session = {
       user: {
@@ -494,7 +503,7 @@ export async function signOut(options?: { callbackUrl?: string }) {
   } catch {
     // Ignore server error on logout
   }
-  // SEC-1: Clear session indicator (not a token — there's nothing sensitive to clear)
+  setStoredToken(null);
   setSessionFlag(false);
   saveSession(null);
   window.dispatchEvent(new Event("streamly:session-change"));
