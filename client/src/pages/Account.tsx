@@ -55,7 +55,7 @@ export default function AccountPage() {
   const { data: session } = useSession();
   const { profile, showToast } = useApp();
 
-  const isDemo = session?.user?.email === "demo@streamly.com" || session?.user?.email?.toLowerCase().includes("demo");
+  const isDemo = session?.user?.email?.toLowerCase().trim() === "demo@streamly.com";
 
   const [subData, setSubData] = useState<SubscriptionState>({
     email: session?.user?.email || (isDemo ? "demo@streamly.com" : ""),

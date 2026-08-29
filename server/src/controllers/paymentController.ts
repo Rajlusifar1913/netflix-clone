@@ -74,10 +74,10 @@ export const getSubscription = async (req: AuthenticatedRequest, res: Response, 
     const user = await User.findById(req.user!.id);
     if (!user) return next(new AppError('User not found', 404));
 
-    const isDemo = user.email.toLowerCase() === 'demo@streamly.com' || user.email.toLowerCase().includes('demo');
-    const hasRealCard = !!(user.subscription?.stripeCustomerId || (user.subscription?.cardLast4 && user.subscription.cardLast4 !== '4242'));
-    const cardLast4 = isDemo ? (user.subscription?.cardLast4 || '4242') : (hasRealCard ? user.subscription?.cardLast4 : '');
-    const cardBrand = isDemo ? (user.subscription?.cardBrand || 'visa') : (hasRealCard ? user.subscription?.cardBrand : '');
+    const isExactDemoUser = user.email.toLowerCase().trim() === 'demo@streamly.com';
+    const hasRealCard = !!(user.subscription?.stripeCustomerId || (user.subscription?.cardLast4 && user.subscription.cardLast4 !== '4242' && user.subscription.cardLast4 !== ''));
+    const cardLast4 = isExactDemoUser ? (user.subscription?.cardLast4 || '4242') : (hasRealCard ? user.subscription?.cardLast4 : '');
+    const cardBrand = isExactDemoUser ? (user.subscription?.cardBrand || 'visa') : (hasRealCard ? user.subscription?.cardBrand : '');
 
     res.status(200).json({
       status: 'success',
@@ -509,12 +509,10 @@ export const getInvoices = async (req: AuthenticatedRequest, res: Response, next
       } catch { /* fallback below */ }
     }
 
-    // Only supply mock billing history for demo accounts when no real Stripe invoices exist
-    const isDemoUser =
-      user.email.toLowerCase() === 'demo@streamly.com' ||
-      user.email.toLowerCase().includes('demo');
+    // STRICT: Only and only provide mock invoices for the exact demo user account in seed data (demo@streamly.com)
+    const isExactDemoUser = user.email.toLowerCase().trim() === 'demo@streamly.com';
 
-    if (invoicesList.length === 0 && isDemoUser) {
+    if (invoicesList.length === 0 && isExactDemoUser) {
       const now = new Date();
       const planAmount = user.subscription?.planId === 'mobile'
         ? '$3.99'
@@ -530,7 +528,7 @@ export const getInvoices = async (req: AuthenticatedRequest, res: Response, next
           description: `Streamly ${user.subscription?.planName || 'Premium'} Plan`,
           amount: planAmount,
           status: 'Paid',
-          card: `${(user.subscription?.cardBrand || 'Visa').toUpperCase()} •••• ${user.subscription?.cardLast4 || '4242'}`,
+          card: `VISA •••• 4242`,
         });
       }
     }
