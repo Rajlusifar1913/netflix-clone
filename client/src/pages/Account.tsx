@@ -47,28 +47,26 @@ interface ParentalSettings {
 const DEFAULT_PARENTAL: ParentalSettings = {
   maturityLevel: "All Maturity Ratings (18+)",
   pinRequired: false,
-  pin: "1234",
+  pin: "",
 };
-
-// BUG-4: Removed MOCK_INVOICES constant — invoices state now initializes as empty []
-// and is populated exclusively from the real /payments/invoices API.
-// Showing fake data to users while the real API loads is misleading.
 
 export default function AccountPage() {
   const navigate = useNavigate();
   const { data: session } = useSession();
   const { profile, showToast } = useApp();
 
+  const isDemo = session?.user?.email === "demo@streamly.com" || session?.user?.email?.toLowerCase().includes("demo");
+
   const [subData, setSubData] = useState<SubscriptionState>({
-    email: session?.user?.email || "demo@streamly.com",
-    name: session?.user?.name || "Demo User",
+    email: session?.user?.email || (isDemo ? "demo@streamly.com" : ""),
+    name: session?.user?.name || (isDemo ? "Demo User" : ""),
     subscription: {
       status: "active",
       planId: "premium",
       planName: "PREMIUM",
       planSpecs: "Ultra HD 4K + HDR (4 Screens at once)",
-      cardLast4: "4242",
-      cardBrand: "visa",
+      cardLast4: isDemo ? "4242" : "",
+      cardBrand: isDemo ? "visa" : "",
       currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       cancelAtPeriodEnd: false,
     },
@@ -530,19 +528,32 @@ export default function AccountPage() {
             </div>
           </div>
 
-          {/* Credit Card Row */}
+          {/* Payment Method / Credit Card Row */}
           <div className="mt-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">
-              <div className="grid size-10 place-items-center rounded bg-emerald-900/40 text-emerald-400">
+              <div className={`grid size-10 place-items-center rounded ${subData.subscription.cardLast4 ? 'bg-emerald-900/40 text-emerald-400' : 'bg-white/5 text-[#888]'}`}>
                 <CreditCard className="size-6" />
               </div>
               <div>
-                <p className="text-base font-bold tracking-wider text-white">
-                  •••• •••• •••• {subData.subscription.cardLast4}
-                </p>
-                <p className="mt-0.5 text-xs text-[#aaa]">
-                  Your next billing date is {formattedDate}
-                </p>
+                {subData.subscription.cardLast4 ? (
+                  <>
+                    <p className="text-base font-bold tracking-wider text-white">
+                      {(subData.subscription.cardBrand || 'Card').toUpperCase()} •••• {subData.subscription.cardLast4}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#aaa]">
+                      Your next billing date is {formattedDate}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-base font-bold text-[#aaa]">
+                      No payment method on file
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#666]">
+                      Add a payment method to manage your subscription.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
@@ -550,7 +561,7 @@ export default function AccountPage() {
               onClick={() => setShowPaymentModal(true)}
               className="rounded bg-[#e50914] px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#c80710]"
             >
-              Manage Payment Info
+              {subData.subscription.cardLast4 ? "Manage Payment Info" : "Add Payment Method"}
             </button>
           </div>
         </div>

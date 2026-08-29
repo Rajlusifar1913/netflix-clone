@@ -74,20 +74,25 @@ export const getSubscription = async (req: AuthenticatedRequest, res: Response, 
     const user = await User.findById(req.user!.id);
     if (!user) return next(new AppError('User not found', 404));
 
+    const isDemo = user.email.toLowerCase() === 'demo@streamly.com' || user.email.toLowerCase().includes('demo');
+    const hasRealCard = !!(user.subscription?.stripeCustomerId || (user.subscription?.cardLast4 && user.subscription.cardLast4 !== '4242'));
+    const cardLast4 = isDemo ? (user.subscription?.cardLast4 || '4242') : (hasRealCard ? user.subscription?.cardLast4 : '');
+    const cardBrand = isDemo ? (user.subscription?.cardBrand || 'visa') : (hasRealCard ? user.subscription?.cardBrand : '');
+
     res.status(200).json({
       status: 'success',
       data: {
         email: user.email,
         name: user.name,
-        subscription: user.subscription || {
-          status: 'active',
-          planId: 'premium',
-          planName: 'PREMIUM',
-          planSpecs: PLAN_SPECS.premium.specs,
-          cardLast4: '4242',
-          cardBrand: 'visa',
-          currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          cancelAtPeriodEnd: false,
+        subscription: {
+          status: user.subscription?.status || 'active',
+          planId: user.subscription?.planId || 'premium',
+          planName: user.subscription?.planName || 'PREMIUM',
+          planSpecs: user.subscription?.planSpecs || PLAN_SPECS.premium.specs,
+          cardLast4,
+          cardBrand,
+          currentPeriodEnd: user.subscription?.currentPeriodEnd || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          cancelAtPeriodEnd: user.subscription?.cancelAtPeriodEnd || false,
         },
       },
     });

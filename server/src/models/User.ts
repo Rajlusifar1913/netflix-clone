@@ -62,11 +62,11 @@ const subscriptionSchema = new Schema<ISubscription>(
     },
     cardLast4: {
       type: String,
-      default: '4242',
+      default: '',
     },
     cardBrand: {
       type: String,
-      default: 'visa',
+      default: '',
     },
     currentPeriodEnd: {
       type: Date,
@@ -133,8 +133,8 @@ const userSchema = new Schema<IUser>(
         planId: 'premium',
         planName: 'PREMIUM',
         planSpecs: 'Ultra HD 4K + HDR (4 Screens at once)',
-        cardLast4: '4242',
-        cardBrand: 'visa',
+        cardLast4: '',
+        cardBrand: '',
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         cancelAtPeriodEnd: false,
       }),

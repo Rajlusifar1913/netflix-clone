@@ -397,8 +397,8 @@ export default function AdminPage() {
     planId: "premium",
     status: "active",
     expiryDate: "",
-    cardBrand: "visa",
-    cardLast4: "4242",
+    cardBrand: "",
+    cardLast4: "",
   });
 
   const openManageSubModal = (user: AdminManagedUser) => {
@@ -408,8 +408,8 @@ export default function AdminPage() {
       planId: sub?.planId || user.planId || "premium",
       status: sub?.status || "active",
       expiryDate: sub?.currentPeriodEnd ? sub.currentPeriodEnd.split("T")[0] : new Date().toISOString().split("T")[0],
-      cardBrand: sub?.cardBrand || "visa",
-      cardLast4: sub?.cardLast4 || "4242",
+      cardBrand: sub?.cardBrand || "",
+      cardLast4: sub?.cardLast4 || "",
     });
   };
 
@@ -1826,8 +1826,14 @@ export default function AdminPage() {
                               </td>
 
                               <td className="py-3 px-4 font-mono text-[11px] text-gray-300">
-                                <span className="uppercase font-bold text-gray-400 mr-1">{sub?.cardBrand || "VISA"}</span>
-                                •••• {sub?.cardLast4 || "4242"}
+                                {sub?.cardLast4 ? (
+                                  <>
+                                    <span className="uppercase font-bold text-gray-400 mr-1">{sub?.cardBrand || "CARD"}</span>
+                                    •••• {sub?.cardLast4}
+                                  </>
+                                ) : (
+                                  <span className="text-gray-500 font-sans">No card on file</span>
+                                )}
                               </td>
 
                               <td className="py-3 px-4 text-[11px]">

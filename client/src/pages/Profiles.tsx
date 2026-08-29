@@ -84,8 +84,7 @@ export function getDefaultProfilesForUser(session?: Session | null): ProfileItem
       avatar: "linear-gradient(135deg,#6d28d9,#d946ef)",
       face: "★",
       kids: true,
-      pin: "1234",
-      hasPin: true,
+      hasPin: false,
     },
   ];
 }
