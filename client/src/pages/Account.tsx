@@ -589,7 +589,14 @@ export default function AccountPage() {
 
         {/* ── PLAN DETAILS ── */}
         <div className="mt-6 rounded-xl border border-white/10 bg-[#181818] p-6 shadow-xl sm:p-8">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#aaa]">PLAN DETAILS</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#aaa]">PLAN DETAILS</p>
+            {subData.subscription.status === "active" && (
+              <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" /> Active Membership
+              </span>
+            )}
+          </div>
 
           <div className="mt-4 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div className="flex items-center gap-3">
@@ -600,25 +607,36 @@ export default function AccountPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowPlanModal(true)}
-                className="rounded border border-white/20 bg-[#262626] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#333]"
-              >
-                Change Plan
-              </button>
-              {/* MF-3: Cancel subscription button */}
-              {!subData.subscription.cancelAtPeriodEnd ? (
-                <button
-                  onClick={handleCancelSubscription}
-                  disabled={cancelingSubscription}
-                  className="rounded border border-red-700/60 bg-transparent px-5 py-2.5 text-xs font-semibold text-red-400 hover:bg-red-950/40 disabled:opacity-50"
-                >
-                  {cancelingSubscription ? "Canceling..." : "Cancel Subscription"}
-                </button>
+              {subData.subscription.status === "active" ? (
+                <>
+                  <button
+                    onClick={() => setShowPlanModal(true)}
+                    className="rounded border border-white/20 bg-[#262626] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#333]"
+                  >
+                    Change Plan
+                  </button>
+                  {/* MF-3: Cancel subscription button */}
+                  {!subData.subscription.cancelAtPeriodEnd ? (
+                    <button
+                      onClick={handleCancelSubscription}
+                      disabled={cancelingSubscription}
+                      className="rounded border border-red-700/60 bg-transparent px-5 py-2.5 text-xs font-semibold text-red-400 hover:bg-red-950/40 disabled:opacity-50"
+                    >
+                      {cancelingSubscription ? "Canceling..." : "Cancel Subscription"}
+                    </button>
+                  ) : (
+                    <span className="rounded border border-yellow-700/50 bg-yellow-950/30 px-4 py-2 text-xs font-semibold text-yellow-400">
+                      Cancels on {formattedDate}
+                    </span>
+                  )}
+                </>
               ) : (
-                <span className="rounded border border-yellow-700/50 bg-yellow-950/30 px-4 py-2 text-xs font-semibold text-yellow-400">
-                  Cancels on {formattedDate}
-                </span>
+                <button
+                  onClick={() => navigate("/plans", { state: { required: true } })}
+                  className="rounded bg-[#e50914] px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-[#c80710] shadow-[0_0_15px_rgba(229,9,20,0.5)] transition"
+                >
+                  Choose / Renew Plan in INR (₹)
+                </button>
               )}
             </div>
           </div>
