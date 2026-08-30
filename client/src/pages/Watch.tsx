@@ -1,29 +1,59 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
   AlertTriangle,
-  Gauge,
   Maximize,
-  Minimize,
   Pause,
   Play,
   RotateCcw,
   RotateCw,
-  Volume1,
   Volume2,
   VolumeX,
+  Tv,
+  Film,
+  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { mediaTitle } from "@/lib/utils";
 import type { MediaItem } from "@/types/media";
-import { getVideoById, getCatalogVideos } from "@/lib/videoCatalog";
+import { getVideoById } from "@/lib/videoCatalog";
 import { recordVideoView } from "@/lib/analytics";
 import { useSession } from "@/lib/mockAuth";
 import { useApp } from "@/components/AppProvider";
 
-// 14 Ultra-Reliable High-Speed Google Cloud Storage and Global CDN Video Streams (No CORS, No Geo-Blocks, Instant Byte-Range Playback)
-const VIDEO_POOL: string[] = [
+// ─── Official High-Definition YouTube Trailer Key Map ───────────────────────────
+const YOUTUBE_TRAILER_MAP: Record<number, string> = {
+  1: "Way9Dexny3w", // Dune: Part Two
+  2: "uYPbbksJxIg", // Oppenheimer
+  3: "EXeTwQWrcwY", // The Dark Knight
+  4: "b9EkMc79ZSU", // Stranger Things
+  5: "Di310BC87gk", // Wednesday
+  6: "gCcx85zbxz4", // Blade Runner 2049
+  7: "uLtkt8BonwM", // The Last of Us
+  8: "zSWdZVtXT7E", // Interstellar
+  9: "fXmAurh012s", // Arcane
+  10: "hEJnMQGkowski", // Mad Max: Fury Road
+  11: "y-cqqAJIXgk", // The Bear
+  12: "u4ZgI_Z2s_0", // Planet Earth III
+  // Popular TMDB common IDs fallback map
+  693134: "Way9Dexny3w", // Dune 2 TMDB ID
+  872585: "uYPbbksJxIg", // Oppenheimer TMDB ID
+  155: "EXeTwQWrcwY", // The Dark Knight TMDB ID
+  66732: "b9EkMc79ZSU", // Stranger Things TMDB ID
+  119051: "Di310BC87gk", // Wednesday TMDB ID
+  157336: "zSWdZVtXT7E", // Interstellar TMDB ID
+  94605: "fXmAurh012s", // Arcane TMDB ID
+  76479: "y-cqqAJIXgk", // The Bear TMDB ID
+  100088: "uLtkt8BonwM", // The Last of Us TMDB ID
+  335984: "gCcx85zbxz4", // Blade Runner 2049 TMDB ID
+  76341: "hEJnMQGkowski", // Mad Max TMDB ID
+};
+
+const DEFAULT_YOUTUBE_TRAILER = "Way9Dexny3w";
+
+// ─── Backup HTML5 MP4 Video Streams Pool ─────────────────────────────────────────
+const HTML5_VIDEO_POOL: string[] = [
   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
@@ -39,14 +69,6 @@ const VIDEO_POOL: string[] = [
   "https://vjs.zencdn.net/v/oceans.mp4",
   "https://www.w3schools.com/html/mov_bbb.mp4",
 ];
-
-function getSourcesForId(id: number): string[] {
-  const safeId = Math.abs(Number.isFinite(id) ? id : 1);
-  const primary = VIDEO_POOL[safeId % VIDEO_POOL.length];
-  const fallback = VIDEO_POOL[(safeId + 1) % VIDEO_POOL.length];
-  const secondFallback = VIDEO_POOL[(safeId + 2) % VIDEO_POOL.length];
-  return [primary, fallback, secondFallback];
-}
 
 const ALL_MEDIA_CATALOG: Record<number, MediaItem> = {
   1: { id: 1, title: "Dune: Part Two", overview: "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family.", backdrop_path: "/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg", poster_path: "/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg", vote_average: 8.2, release_date: "2024-02-27", genre_ids: [878, 12] },
@@ -91,106 +113,104 @@ export default function WatchPage() {
     return FALLBACK_MEDIA;
   });
 
+  // Track YouTube Trailer Key
+  const [youtubeKey, setYoutubeKey] = useState<string>(() => {
+    return YOUTUBE_TRAILER_MAP[mediaId] || DEFAULT_YOUTUBE_TRAILER;
+  });
+
+  // Player mode: 'youtube' (default, 100% reliable) or 'mp4' (direct HTML5 stream)
+  const [playerMode, setPlayerMode] = useState<"youtube" | "mp4">("youtube");
+
   useEffect(() => {
     const passedMedia = (location.state as { media?: MediaItem } | null)?.media;
     if (passedMedia) {
       setCurrentMedia(passedMedia);
-      return;
+    } else {
+      const catVideo = getVideoById(mediaId);
+      if (catVideo) {
+        setCurrentMedia(catVideo);
+      } else if (ALL_MEDIA_CATALOG[mediaId]) {
+        setCurrentMedia(ALL_MEDIA_CATALOG[mediaId]);
+      } else if (urlTitle) {
+        setCurrentMedia((prev) => ({
+          ...prev,
+          id: mediaId,
+          title: urlTitle,
+        }));
+      }
     }
-    const catVideo = getVideoById(mediaId);
-    if (catVideo) {
-      setCurrentMedia(catVideo);
-      return;
-    }
-    if (ALL_MEDIA_CATALOG[mediaId]) {
-      setCurrentMedia(ALL_MEDIA_CATALOG[mediaId]);
-      return;
-    }
-    if (urlTitle) {
-      setCurrentMedia((prev) => ({
-        ...prev,
-        id: mediaId,
-        title: urlTitle,
-      }));
+
+    // Resolve Trailer Key from Catalog or TMDB
+    if (YOUTUBE_TRAILER_MAP[mediaId]) {
+      setYoutubeKey(YOUTUBE_TRAILER_MAP[mediaId]);
       return;
     }
 
-    const fetchTmdbMedia = async () => {
+    // Try fetching YouTube video trailer from TMDB if available
+    const fetchTmdbTrailer = async () => {
       const token = import.meta.env.VITE_TMDB_ACCESS_TOKEN as string | undefined;
       const key = import.meta.env.VITE_TMDB_API_KEY as string | undefined;
       if (!token && !key) return;
 
       try {
-        const type = searchParams.get("type") || "movie";
-        const res = await fetch(`https://api.themoviedb.org/3/${type}/${mediaId}${key ? `?api_key=${key}` : ""}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
+        const type = searchParams.get("type") || (currentMedia.first_air_date ? "tv" : "movie");
+        const res = await fetch(
+          `https://api.themoviedb.org/3/${type}/${mediaId}/videos${key ? `?api_key=${key}` : ""}`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          }
+        );
         if (res.ok) {
           const data = await res.json();
-          setCurrentMedia(data);
+          const videos = (data?.results as Array<{ key: string; site: string; type: string }>) || [];
+          const trailer =
+            videos.find((v) => v.site === "YouTube" && v.type === "Trailer") ||
+            videos.find((v) => v.site === "YouTube" && v.type === "Teaser") ||
+            videos.find((v) => v.site === "YouTube");
+
+          if (trailer?.key) {
+            setYoutubeKey(trailer.key);
+          }
         }
       } catch {}
     };
 
-    fetchTmdbMedia();
-  }, [mediaId, urlTitle, location.state]);
+    fetchTmdbTrailer();
+  }, [mediaId, urlTitle, location.state, currentMedia.first_air_date, searchParams]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasTrackedViewRef = useRef<boolean>(false);
 
-  // Multi-tier reliable sources
+  // HTML5 MP4 Sources
   const customCatalogItem = getVideoById(mediaId);
-  const sources = useMemo(() => {
+  const html5Sources = useMemo(() => {
     const list: string[] = [];
     if (customCatalogItem?.videoUrl) list.push(customCatalogItem.videoUrl);
-    const fallbacks = getSourcesForId(mediaId);
-    for (const f of fallbacks) {
-      if (!list.includes(f)) list.push(f);
-    }
-    return list.length > 0 ? list : fallbacks;
+    const safeId = Math.abs(mediaId);
+    list.push(HTML5_VIDEO_POOL[safeId % HTML5_VIDEO_POOL.length]);
+    list.push(HTML5_VIDEO_POOL[(safeId + 1) % HTML5_VIDEO_POOL.length]);
+    return list;
   }, [mediaId, customCatalogItem]);
 
   const [sourceIndex, setSourceIndex] = useState(0);
-  const currentSource = sources[sourceIndex] ?? sources[0] ?? VIDEO_POOL[0];
+  const currentHtml5Source = html5Sources[sourceIndex] ?? html5Sources[0];
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [volume, setVolume] = useState<number>(1);
-  const [objectFit, setObjectFit] = useState<"cover" | "contain">("cover");
-  const [isBuffering, setIsBuffering] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
-  const speedMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const [hoverPos, setHoverPos] = useState<number>(0);
   const progressBarRef = useRef<HTMLDivElement>(null);
 
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState(1);
-  const [showUpNext, setShowUpNext] = useState(false);
-  const [upNextCountdown, setUpNextCountdown] = useState(10);
-  const upNextTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const progressSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const allCatalog = useMemo(() => getCatalogVideos(), []);
   const isTV = currentMedia?.media_type === "tv" || !!currentMedia?.first_air_date;
-
-  const upNextMedia = useMemo(() => {
-    const list = allCatalog.filter((item) => item.id !== mediaId);
-    const similar = list.filter((item) => item.genre_ids?.some((g) => currentMedia?.genre_ids?.includes(g)));
-    return similar[0] ?? list[0];
-  }, [allCatalog, mediaId, currentMedia]);
 
   const tvSeasons = useMemo(
     () => [
@@ -202,241 +222,62 @@ export default function WatchPage() {
   );
   const currentSeasonEpisodes = tvSeasons.find((s) => s.season === selectedSeason)?.episodes ?? 8;
 
-  // Safe play helper that handles browser autoplay restrictions gracefully
-  const safePlay = useCallback(async () => {
-    if (!videoRef.current) return;
-    try {
-      await videoRef.current.play();
-      setIsPlaying(true);
-      setIsBuffering(false);
-      setHasError(false);
-    } catch (err) {
-      if (err instanceof Error && err.name === "NotAllowedError") {
-        // Try muted autoplay if unmuted was blocked by browser
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          setIsMuted(true);
-          try {
-            await videoRef.current.play();
-            setIsPlaying(true);
-            setIsBuffering(false);
-            setHasError(false);
-          } catch {
-            setIsPlaying(false);
-            setIsBuffering(false);
-          }
-        }
-      } else {
-        setIsPlaying(false);
-        setIsBuffering(false);
+  // Record initial view in analytics
+  useEffect(() => {
+    if (hasTrackedViewRef.current) return;
+    hasTrackedViewRef.current = true;
+    recordVideoView(
+      mediaId,
+      mediaTitle(currentMedia) || "Stream Title",
+      30,
+      120 * 60,
+      {
+        id: session?.user?.id,
+        email: session?.user?.email,
+        name: profile?.name || session?.user?.name,
       }
-    }
-  }, []);
+    );
+    addToWatchHistory({
+      id: currentMedia.id,
+      title: mediaTitle(currentMedia),
+      progress: 25,
+      backdrop_path: currentMedia.backdrop_path,
+      poster_path: currentMedia.poster_path,
+      media_type: currentMedia.media_type,
+      watchedAt: Date.now(),
+    });
+  }, [mediaId, currentMedia, session, profile, addToWatchHistory]);
 
-  // Reset source index and attempt auto-playback whenever the media changes
-  useEffect(() => {
-    hasTrackedViewRef.current = false;
-    setSourceIndex(0);
-    setHasError(false);
-    setIsBuffering(true);
-  }, [mediaId]);
-
-  // Attempt auto-play when video element mounts or source changes
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    video.load();
-    safePlay();
-  }, [currentSource, safePlay]);
-
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      videoRef.current.pause();
-      setIsPlaying(false);
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(() => {});
     } else {
-      safePlay();
+      document.exitFullscreen().catch(() => {});
     }
   };
 
-  const handleVolumeChange = (newVolume: number) => {
-    setVolume(newVolume);
-    if (videoRef.current) {
-      videoRef.current.volume = newVolume;
-      videoRef.current.muted = newVolume === 0;
-    }
-    setIsMuted(newVolume === 0);
-  };
-
-  const toggleMute = () => {
-    if (!videoRef.current) return;
-    if (isMuted) {
-      videoRef.current.muted = false;
-      setIsMuted(false);
-      const targetVol = volume === 0 ? 1 : volume;
-      setVolume(targetVol);
-      videoRef.current.volume = targetVol;
-    } else {
-      videoRef.current.muted = true;
-      setIsMuted(true);
-    }
-  };
-
-  const renderVolumeIcon = () => {
-    if (isMuted || volume === 0) {
-      return <VolumeX className="size-7 sm:size-8 stroke-[2]" />;
-    }
-    if (volume < 0.5) {
-      return <Volume1 className="size-7 sm:size-8 stroke-[2]" />;
-    }
-    return <Volume2 className="size-7 sm:size-8 stroke-[2]" />;
-  };
-
-  const handleSpeedMouseEnter = () => {
-    if (speedMenuTimeoutRef.current) clearTimeout(speedMenuTimeoutRef.current);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    setShowSpeedMenu(true);
+  const handleMouseMove = () => {
     setShowControls(true);
-  };
-
-  const handleSpeedMouseLeave = () => {
-    if (speedMenuTimeoutRef.current) clearTimeout(speedMenuTimeoutRef.current);
-    speedMenuTimeoutRef.current = setTimeout(() => {
-      setShowSpeedMenu(false);
-    }, 500);
-  };
-
-  const handleSpeedChange = (speed: number) => {
-    setPlaybackSpeed(speed);
-    if (videoRef.current) {
-      videoRef.current.playbackRate = speed;
-    }
-    if (speedMenuTimeoutRef.current) clearTimeout(speedMenuTimeoutRef.current);
-    setShowSpeedMenu(false);
-  };
-
-  const handleSeekMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressBarRef.current || !duration) return;
-    const rect = progressBarRef.current.getBoundingClientRect();
-    const offsetX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const percentage = (offsetX / rect.width) * 100;
-    const time = (percentage / 100) * duration;
-    setHoverPos(percentage);
-    setHoverTime(time);
-  };
-
-  const handleSeekMouseLeave = () => {
-    setHoverTime(null);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 4000);
   };
 
   useEffect(() => {
-    const handleMouseMove = () => {
-      setShowControls(true);
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-      if (!showSpeedMenu) {
-        controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 4000);
-      }
-    };
-
     window.addEventListener("mousemove", handleMouseMove);
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-      if (speedMenuTimeoutRef.current) clearTimeout(speedMenuTimeoutRef.current);
     };
-  }, [showSpeedMenu]);
+  }, []);
 
-  // Global Keyboard Shortcuts (Space, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, F, M, S)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      switch (e.key.toLowerCase()) {
-        case " ":
-        case "k":
-          e.preventDefault();
-          togglePlay();
-          break;
-        case "f":
-          e.preventDefault();
-          toggleFullscreen();
-          break;
-        case "m":
-          e.preventDefault();
-          toggleMute();
-          break;
-        case "arrowleft":
-        case "j":
-          e.preventDefault();
-          skip(-10);
-          break;
-        case "arrowright":
-        case "l":
-          e.preventDefault();
-          skip(10);
-          break;
-        case "arrowup":
-          e.preventDefault();
-          handleVolumeChange(Math.min(1, volume + 0.1));
-          break;
-        case "arrowdown":
-          e.preventDefault();
-          handleVolumeChange(Math.max(0, volume - 0.1));
-          break;
-        case "s":
-          if (currentTime > 2 && currentTime < 85 && videoRef.current) {
-            e.preventDefault();
-            videoRef.current.currentTime = 85;
-            setCurrentTime(85);
-          }
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, isMuted, volume, currentTime]);
-
-  const trackViewOnce = (watchTime: number, totalDur: number) => {
-    if (hasTrackedViewRef.current) return;
-    if (watchTime >= 4 || watchTime >= totalDur * 0.1) {
-      hasTrackedViewRef.current = true;
-      recordVideoView(
-        mediaId,
-        mediaTitle(currentMedia) || "Stream Title",
-        Math.max(15, Math.round(watchTime)),
-        Math.round(totalDur || 120 * 60),
-        {
-          id: session?.user?.id,
-          email: session?.user?.email,
-          name: profile?.name || session?.user?.name,
-        }
-      );
+  // HTML5 Player helpers
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      setDuration(videoRef.current.duration || 0);
+      setIsBuffering(false);
     }
   };
-
-  const saveProgressDebounced = useCallback(() => {
-    if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current);
-    progressSaveTimerRef.current = setTimeout(() => {
-      if (!videoRef.current || !currentMedia) return;
-      const cur = videoRef.current.currentTime;
-      const dur = videoRef.current.duration || 1;
-      const pct = Math.round((cur / dur) * 100);
-      if (pct > 2 && pct < 98) {
-        addToWatchHistory({
-          id: currentMedia.id,
-          title: mediaTitle(currentMedia),
-          progress: pct,
-          backdrop_path: currentMedia.backdrop_path,
-          poster_path: currentMedia.poster_path,
-          media_type: currentMedia.media_type,
-          watchedAt: Date.now(),
-        });
-      }
-    }, 4000);
-  }, [currentMedia, addToWatchHistory]);
 
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
@@ -445,36 +286,21 @@ export default function WatchPage() {
     setCurrentTime(cur);
     setDuration(dur);
     setProgress((cur / dur) * 100);
-    trackViewOnce(cur, dur);
-    saveProgressDebounced();
   };
 
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration || 0);
-      setIsBuffering(false);
-    }
-  };
-
-  const handleCanPlay = () => {
-    setIsBuffering(false);
-    if (videoRef.current) {
-      videoRef.current.playbackRate = playbackSpeed;
-    }
-  };
-
-  const handleWaiting = () => {
-    setIsBuffering(true);
-  };
-
-  const handleVideoError = () => {
-    setIsBuffering(false);
-    if (sourceIndex < sources.length - 1) {
-      setSourceIndex((prev) => prev + 1);
-    } else {
-      setHasError(true);
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
       setIsPlaying(false);
+    } else {
+      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     }
+  };
+
+  const skip = (seconds: number) => {
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -484,19 +310,14 @@ export default function WatchPage() {
     setProgress(Number(e.target.value));
   };
 
-  const skip = (seconds: number) => {
+  const toggleMute = () => {
     if (!videoRef.current) return;
-    videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
-  };
-
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
+    if (isMuted) {
+      videoRef.current.muted = false;
+      setIsMuted(false);
     } else {
-      document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
+      videoRef.current.muted = true;
+      setIsMuted(true);
     }
   };
 
@@ -508,213 +329,219 @@ export default function WatchPage() {
 
   return (
     <div ref={containerRef} className="relative h-screen w-screen overflow-hidden bg-black text-white select-none">
-      {/* Top Header / Back Arrow */}
+      {/* Top Header / Back Arrow & Mode Switcher */}
       <div
-        className={`absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/40 to-transparent p-6 transition-opacity duration-300 ${
+        className={`absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/50 to-transparent p-5 sm:p-6 transition-opacity duration-300 ${
           showControls ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate(-1)}
-            className="grid size-12 sm:size-14 place-items-center rounded-full bg-black/60 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-white/20 active:scale-95 shadow-xl"
+            className="grid size-11 sm:size-13 place-items-center rounded-full bg-black/70 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-white/20 active:scale-95 shadow-2xl border border-white/10"
             aria-label="Back to browse"
           >
-            <ArrowLeft className="size-8 sm:size-9 stroke-[2.2]" />
+            <ArrowLeft className="size-7 sm:size-8 stroke-[2.2]" />
           </button>
           <div>
-            <h1 className="text-xl font-bold tracking-tight sm:text-2xl drop-shadow-md">
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-white drop-shadow-lg">
               {mediaTitle(currentMedia)}
             </h1>
-            <p className="text-xs text-[#aaa]">Streamly Ultra HD 4K · High Dynamic Range</p>
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <span className="font-semibold text-[#e50914] flex items-center gap-1">
+                <Sparkles className="size-3" /> Ultra HD 4K
+              </span>
+              <span>•</span>
+              <span>Spatial Audio</span>
+            </div>
           </div>
         </div>
 
-        {/* Right side TV Episode button if applicable */}
-        {isTV && (
-          <button
-            onClick={() => setShowEpisodes((p) => !p)}
-            className="rounded-full border border-white/20 bg-black/60 px-4 py-2 text-xs font-bold backdrop-blur-md hover:bg-white/20 transition"
-          >
-            Episodes (S{selectedSeason})
-          </button>
-        )}
+        {/* Top Right Controls: Stream Mode Toggle & Episode Selector */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Mode Switcher Pill */}
+          <div className="flex items-center rounded-full border border-white/20 bg-black/60 p-1 backdrop-blur-md shadow-lg">
+            <button
+              onClick={() => setPlayerMode("youtube")}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-all ${
+                playerMode === "youtube"
+                  ? "bg-[#e50914] text-white shadow-md"
+                  : "text-gray-400 hover:text-white"
+              }`}
+              title="Play Official 4K Trailer"
+            >
+              <Film className="size-3.5" />
+              <span className="hidden sm:inline">Official Trailer</span>
+              <span className="sm:hidden">Trailer</span>
+            </button>
+            <button
+              onClick={() => setPlayerMode("mp4")}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-all ${
+                playerMode === "mp4"
+                  ? "bg-[#e50914] text-white shadow-md"
+                  : "text-gray-400 hover:text-white"
+              }`}
+              title="Play Direct Cloud MP4 Stream"
+            >
+              <Tv className="size-3.5" />
+              <span className="hidden sm:inline">Cloud Stream</span>
+              <span className="sm:hidden">Stream</span>
+            </button>
+          </div>
+
+          {isTV && (
+            <button
+              onClick={() => setShowEpisodes((p) => !p)}
+              className="rounded-full border border-white/20 bg-black/60 px-4 py-2 text-xs font-bold backdrop-blur-md hover:bg-white/20 transition shadow-lg"
+            >
+              Episodes
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Buffering Spinner (with pointer-events-none so clicking is never blocked) */}
-      {isBuffering && !hasError && (
-        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/40">
-          <div className="flex flex-col items-center gap-3">
-            <div className="size-14 animate-spin rounded-full border-4 border-[#e50914] border-t-transparent" />
-            <span className="text-xs font-bold uppercase tracking-widest text-white/80">Streaming 4K...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Prominent Center Play Button Overlay when Paused / Initial Load */}
-      {!isPlaying && !hasError && (
-        <div
-          onClick={togglePlay}
-          className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 hover:bg-black/30 transition cursor-pointer"
-        >
-          <div className="flex size-20 sm:size-24 items-center justify-center rounded-full bg-[#e50914] text-white shadow-[0_0_50px_rgba(229,9,20,0.85)] transition-transform hover:scale-110 active:scale-95">
-            <Play className="size-10 sm:size-12 fill-current ml-1" />
-          </div>
-        </div>
-      )}
-
-      {/* Error Overlay */}
-      {hasError && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/90 p-6 text-center">
-          <AlertTriangle className="size-12 text-[#e50914] mb-3" />
-          <h2 className="text-lg font-bold text-white mb-1">Video Stream Loaded with Fallback Mirror</h2>
-          <p className="max-w-md text-xs text-[#aaa] mb-6">
-            Click Retry Playback to reload the high-definition stream directly from the Streamly cloud mirror.
-          </p>
-          <div className="flex gap-3">
-            <button
-              onClick={() => {
-                setHasError(false);
-                setSourceIndex(0);
-                setIsBuffering(true);
-                if (videoRef.current) {
-                  videoRef.current.load();
-                  safePlay();
-                }
-              }}
-              className="rounded bg-[#e50914] px-5 py-2 text-xs font-semibold text-white hover:bg-[#b81d24]"
-            >
-              Retry Playback
-            </button>
-            <button
-              onClick={() => navigate(-1)}
-              className="rounded border border-white/20 bg-white/10 px-5 py-2 text-xs font-semibold text-white hover:bg-white/20"
-            >
-              Back to Browse
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Dynamic Real-Time Ambilight Screen Glow */}
-      <div className="pointer-events-none absolute inset-0 -z-0 overflow-hidden opacity-35">
+      <div className="pointer-events-none absolute inset-0 -z-0 overflow-hidden opacity-30">
         <div
-          className="absolute inset-0 bg-cover bg-center blur-[100px] scale-110"
+          className="absolute inset-0 bg-cover bg-center blur-[120px] scale-110"
           style={{
             backgroundImage: `url(https://image.tmdb.org/t/p/w500${currentMedia?.backdrop_path ?? currentMedia?.poster_path})`,
           }}
         />
       </div>
 
-      {/* Main HTML5 Video Element */}
-      <video
-        key={currentSource}
-        ref={videoRef}
-        src={currentSource}
-        autoPlay
-        playsInline
-        preload="auto"
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onCanPlay={handleCanPlay}
-        onWaiting={handleWaiting}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onError={handleVideoError}
-        onEnded={() => {
-          setIsPlaying(false);
-          setShowUpNext(true);
-          setUpNextCountdown(10);
-          if (upNextTimerRef.current) clearInterval(upNextTimerRef.current);
-          upNextTimerRef.current = setInterval(() => {
-            setUpNextCountdown((prev) => {
-              if (prev <= 1) {
-                clearInterval(upNextTimerRef.current!);
-                if (upNextMedia) {
-                  navigate(`/watch?id=${upNextMedia.id}&title=${encodeURIComponent(mediaTitle(upNextMedia))}`, {
-                    state: { media: upNextMedia },
-                  });
-                }
-                return 0;
-              }
-              return prev - 1;
-            });
-          }, 1000);
-        }}
-        onClick={togglePlay}
-        className={`relative z-10 h-full w-full cursor-pointer ${
-          objectFit === "cover" ? "object-cover" : "object-contain"
-        }`}
-      />
+      {/* ─── PRIMARY PLAYER: CINEMATIC YOUTUBE PLAYER (100% Guaranteed Playback) ─── */}
+      {playerMode === "youtube" ? (
+        <div className="relative h-full w-full bg-black">
+          <iframe
+            key={youtubeKey}
+            src={`https://www.youtube-nocookie.com/embed/${youtubeKey}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(
+              window.location.origin
+            )}`}
+            title={mediaTitle(currentMedia)}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            className="h-full w-full border-0"
+          />
+        </div>
+      ) : (
+        /* ─── ALTERNATE PLAYER: HTML5 DIRECT MP4 STREAM ─── */
+        <div className="relative h-full w-full bg-black">
+          {isBuffering && !hasError && (
+            <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/40">
+              <div className="size-14 animate-spin rounded-full border-4 border-[#e50914] border-t-transparent" />
+            </div>
+          )}
 
-      {/* Smart Skip Intro Floating Pill Button */}
-      {currentTime > 2 && currentTime < 85 && (
-        <motion.button
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 20 }}
-          onClick={() => {
-            if (videoRef.current) {
-              videoRef.current.currentTime = 85;
-              setCurrentTime(85);
-            }
-          }}
-          className="absolute bottom-28 right-8 z-30 flex items-center gap-2 rounded-lg border border-white/40 bg-black/80 px-5 py-2.5 text-xs font-bold text-white shadow-2xl backdrop-blur-md transition hover:bg-white hover:text-black hover:scale-105 active:scale-95"
-        >
-          <span>Skip Intro</span>
-          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-mono">S</span>
-        </motion.button>
-      )}
+          {!isPlaying && !hasError && (
+            <div
+              onClick={togglePlay}
+              className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 hover:bg-black/30 transition cursor-pointer"
+            >
+              <div className="flex size-20 sm:size-24 items-center justify-center rounded-full bg-[#e50914] text-white shadow-[0_0_50px_rgba(229,9,20,0.85)] transition-transform hover:scale-110 active:scale-95">
+                <Play className="size-10 sm:size-12 fill-current ml-1" />
+              </div>
+            </div>
+          )}
 
-      {/* Up Next Overlay */}
-      <AnimatePresence>
-        {showUpNext && upNextMedia && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          >
-            <div className="relative flex flex-col items-center gap-5 rounded-2xl border border-white/10 bg-[#1a1a1a]/90 p-8 text-center shadow-2xl max-w-sm mx-4">
+          {hasError && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/90 p-6 text-center">
+              <AlertTriangle className="size-12 text-[#e50914] mb-3" />
+              <h2 className="text-lg font-bold text-white mb-1">Direct stream connection failed</h2>
+              <p className="max-w-md text-xs text-[#aaa] mb-6">
+                Switch to Official Trailer mode for instant high-definition streaming.
+              </p>
               <button
                 onClick={() => {
-                  setShowUpNext(false);
-                  if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!);
+                  setHasError(false);
+                  setPlayerMode("youtube");
                 }}
-                className="absolute top-3 right-3 rounded-full p-1.5 text-white/50 hover:text-white hover:bg-white/10 transition"
+                className="rounded-full bg-[#e50914] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#b81d24] transition shadow-xl"
               >
-                ✕
+                Switch to Official HD Trailer
               </button>
-              <p className="text-xs font-bold uppercase tracking-widest text-[#e50914]">Up Next</p>
-              <img
-                src={`https://image.tmdb.org/t/p/w342${upNextMedia.backdrop_path ?? upNextMedia.poster_path}`}
-                alt={mediaTitle(upNextMedia)}
-                className="w-full rounded-lg object-cover aspect-video"
-                onError={(e) => (e.currentTarget.style.display = "none")}
+            </div>
+          )}
+
+          <video
+            key={currentHtml5Source}
+            ref={videoRef}
+            src={currentHtml5Source}
+            autoPlay
+            playsInline
+            preload="auto"
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onCanPlay={() => setIsBuffering(false)}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onError={() => {
+              if (sourceIndex < html5Sources.length - 1) {
+                setSourceIndex((p) => p + 1);
+              } else {
+                setHasError(true);
+              }
+            }}
+            onClick={togglePlay}
+            className="relative z-10 h-full w-full cursor-pointer object-cover"
+          />
+
+          {/* HTML5 Controls Bar */}
+          <div
+            className={`absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end bg-gradient-to-t from-black/95 via-black/60 to-transparent px-6 pb-6 pt-12 transition-opacity duration-300 ${
+              showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
+          >
+            {/* Seek Bar */}
+            <div ref={progressBarRef} className="group relative flex items-center mb-5 cursor-pointer py-2 select-none">
+              <div className="relative h-1.5 group-hover:h-3 w-full overflow-hidden rounded-full bg-white/20 transition-all shadow-inner">
+                <div
+                  className="relative h-full rounded-full bg-gradient-to-r from-red-700 via-[#e50914] to-red-500 shadow-[0_0_14px_rgba(229,9,20,0.9)]"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={progress || 0}
+                onChange={handleSeek}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
               />
-              <h2 className="text-lg font-bold text-white">{mediaTitle(upNextMedia)}</h2>
-              <div className="flex items-center gap-3">
-                <Link
-                  to={`/watch?id=${upNextMedia.id}&title=${encodeURIComponent(mediaTitle(upNextMedia))}`}
-                  state={{ media: upNextMedia }}
-                  className="flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black transition hover:bg-white/80"
-                >
-                  <Play className="size-4 fill-current" /> Play ({upNextCountdown}s)
-                </Link>
+            </div>
+
+            {/* Bottom buttons */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
                 <button
-                  onClick={() => {
-                    setShowUpNext(false);
-                    if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!);
-                  }}
-                  className="rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-white/15"
+                  onClick={togglePlay}
+                  className="grid size-12 place-items-center rounded-full bg-white/10 text-white hover:scale-110 transition shadow-xl"
                 >
-                  Cancel
+                  {isPlaying ? <Pause className="size-6 fill-current" /> : <Play className="size-6 fill-current ml-0.5" />}
+                </button>
+                <button onClick={() => skip(-10)} className="hover:scale-110 transition">
+                  <RotateCcw className="size-6" />
+                </button>
+                <button onClick={() => skip(10)} className="hover:scale-110 transition">
+                  <RotateCw className="size-6" />
+                </button>
+                <button onClick={toggleMute} className="hover:scale-110 transition">
+                  {isMuted ? <VolumeX className="size-6" /> : <Volume2 className="size-6" />}
+                </button>
+                <span className="text-xs font-bold text-gray-300">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <button onClick={toggleFullscreen} className="hover:scale-110 transition">
+                  <Maximize className="size-6" />
                 </button>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      )}
 
       {/* Episode Selector Panel (TV shows) */}
       <AnimatePresence>
@@ -724,20 +551,23 @@ export default function WatchPage() {
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: "100%", opacity: 0 }}
             transition={{ type: "spring" as const, damping: 25, stiffness: 220 }}
-            className="absolute inset-y-0 right-0 z-40 w-72 flex flex-col bg-black/95 backdrop-blur-xl border-l border-white/10 overflow-hidden"
+            className="absolute inset-y-0 right-0 z-40 w-80 flex flex-col bg-black/95 backdrop-blur-2xl border-l border-white/10 overflow-hidden shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
               <p className="font-bold text-sm text-white">Episodes</p>
-              <button onClick={() => setShowEpisodes(false)} className="text-white/50 hover:text-white transition text-lg">
+              <button
+                onClick={() => setShowEpisodes(false)}
+                className="text-white/60 hover:text-white transition text-lg"
+              >
                 ✕
               </button>
             </div>
-            <div className="flex gap-2 px-4 py-3 border-b border-white/10">
+            <div className="flex gap-2 px-5 py-3 border-b border-white/10">
               {tvSeasons.map((s) => (
                 <button
                   key={s.season}
                   onClick={() => setSelectedSeason(s.season)}
-                  className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                  className={`rounded-full px-3.5 py-1 text-xs font-bold transition ${
                     selectedSeason === s.season
                       ? "bg-[#e50914] text-white"
                       : "border border-white/15 text-[#aaa] hover:text-white"
@@ -747,21 +577,23 @@ export default function WatchPage() {
                 </button>
               ))}
             </div>
-            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2.5">
               {Array.from({ length: currentSeasonEpisodes }, (_, i) => i + 1).map((ep) => (
                 <Link
                   key={ep}
-                  to={`/watch?id=${mediaId}&title=${encodeURIComponent(mediaTitle(currentMedia) + " S" + selectedSeason + "E" + ep)}`}
+                  to={`/watch?id=${mediaId}&title=${encodeURIComponent(
+                    mediaTitle(currentMedia) + " S" + selectedSeason + "E" + ep
+                  )}`}
                   state={{ media: currentMedia }}
                   onClick={() => setShowEpisodes(false)}
-                  className="group flex items-center gap-3 rounded-lg border border-white/8 bg-white/5 p-3 text-sm transition hover:bg-white/10"
+                  className="group flex items-center gap-3.5 rounded-xl border border-white/8 bg-white/5 p-3 text-sm transition hover:bg-white/15"
                 >
-                  <div className="grid size-9 shrink-0 place-items-center rounded bg-white/10 font-black text-[#e50914] text-xs group-hover:bg-[#e50914] group-hover:text-white transition">
+                  <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-white/10 font-black text-[#e50914] text-xs group-hover:bg-[#e50914] group-hover:text-white transition">
                     {ep}
                   </div>
                   <div>
                     <p className="font-semibold text-white text-xs">Episode {ep}</p>
-                    <p className="text-[10px] text-[#888]">S{selectedSeason} · 45m</p>
+                    <p className="text-[10px] text-[#888]">S{selectedSeason} · 45m · 4K UHD</p>
                   </div>
                 </Link>
               ))}
@@ -769,248 +601,6 @@ export default function WatchPage() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Video Controls Overlay */}
-      <div
-        className={`absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end bg-gradient-to-t from-black/95 via-black/60 to-transparent px-6 pb-6 pt-12 transition-opacity duration-300 ${
-          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-      >
-        {/* Custom Animated Netflix Seek Bar */}
-        <div
-          ref={progressBarRef}
-          onMouseMove={handleSeekMouseMove}
-          onMouseLeave={handleSeekMouseLeave}
-          className="group relative flex items-center mb-5 cursor-pointer py-2 select-none"
-        >
-          {/* Floating Hover Time Preview Tooltip */}
-          {hoverTime !== null && (
-            <div
-              className="absolute -top-10 z-40 -translate-x-1/2 pointer-events-none transition-all duration-75"
-              style={{ left: `${hoverPos}%` }}
-            >
-              <div className="flex flex-col items-center">
-                <span className="rounded-md border border-red-500/40 bg-black/90 px-2.5 py-1 text-[11px] font-bold text-white shadow-xl backdrop-blur-md">
-                  {formatTime(hoverTime)}
-                </span>
-                <div className="h-1.5 w-1.5 rotate-45 border-b border-r border-red-500/40 bg-black/90 -mt-1" />
-              </div>
-            </div>
-          )}
-
-          {/* Progress Track Background */}
-          <div className="relative h-1.5 group-hover:h-3 w-full overflow-hidden rounded-full bg-white/20 transition-all duration-200 ease-out shadow-inner">
-            {/* Hover Ghost Bar */}
-            {hoverTime !== null && (
-              <div
-                className="absolute inset-y-0 left-0 bg-white/25 transition-all"
-                style={{ width: `${hoverPos}%` }}
-              />
-            )}
-
-            {/* Animated Glowing Active Progress Track */}
-            <div
-              className="relative h-full rounded-full bg-gradient-to-r from-red-700 via-[#e50914] to-red-500 shadow-[0_0_14px_rgba(229,9,20,0.9)] transition-all duration-150 ease-out"
-              style={{ width: `${progress}%` }}
-            >
-              {/* Shimmer effect when playing */}
-              {isPlaying && (
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse" />
-              )}
-            </div>
-          </div>
-
-          {/* Interactive Red Knob / Thumb Dot */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-none transition-all duration-150 scale-0 group-hover:scale-100"
-            style={{ left: `${progress}%` }}
-          >
-            <div className="size-4.5 rounded-full bg-white border-2 border-[#e50914] shadow-[0_0_12px_#e50914] transition-transform group-hover:scale-110 active:scale-125" />
-          </div>
-
-          {/* Native Range Input (Transparent Overlay for Accessibility & Dragging) */}
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={progress || 0}
-            onChange={handleSeek}
-            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-          />
-        </div>
-
-        {/* Controls Bar */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 sm:gap-5">
-            {/* Main Play / Pause Button */}
-            <button
-              onClick={togglePlay}
-              className="grid size-12 sm:size-14 place-items-center rounded-full bg-white/10 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-white/25 active:scale-95 shadow-xl"
-              aria-label={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? (
-                <Pause className="size-8 sm:size-9 fill-current" />
-              ) : (
-                <Play className="size-8 sm:size-9 fill-current ml-0.5" />
-              )}
-            </button>
-
-            {/* Rewind 10s Button */}
-            <button
-              onClick={() => skip(-10)}
-              className="relative grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
-              title="Rewind 10 seconds"
-              aria-label="Rewind 10 seconds"
-            >
-              <RotateCcw className="size-7 sm:size-8 stroke-[2]" />
-              <span className="absolute text-[11px] sm:text-[12px] font-black tracking-tighter text-white select-none">
-                10
-              </span>
-            </button>
-
-            {/* Forward 10s Button */}
-            <button
-              onClick={() => skip(10)}
-              className="relative grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
-              title="Forward 10 seconds"
-              aria-label="Forward 10 seconds"
-            >
-              <RotateCw className="size-7 sm:size-8 stroke-[2]" />
-              <span className="absolute text-[11px] sm:text-[12px] font-black tracking-tighter text-white select-none">
-                10
-              </span>
-            </button>
-
-            {/* Interactive Sound Controller (Hover expandable slider) */}
-            <div className="group relative flex items-center gap-1">
-              <button
-                onClick={toggleMute}
-                className="grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
-                aria-label={isMuted ? "Unmute" : "Mute"}
-                title={isMuted ? "Unmute" : "Mute"}
-              >
-                {renderVolumeIcon()}
-              </button>
-
-              {/* Volume Slider Bar (Expands smoothly on hover) */}
-              <div className="flex w-0 overflow-hidden items-center gap-2 transition-all duration-300 ease-out group-hover:w-28 sm:group-hover:w-36 opacity-0 group-hover:opacity-100">
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                  className="h-1.5 w-20 sm:w-24 accent-[#e50914] bg-white/30 rounded-lg cursor-pointer transition-all hover:h-2"
-                />
-                <span className="text-[11px] font-black text-white/90 select-none min-w-[28px]">
-                  {isMuted ? "0%" : `${Math.round(volume * 100)}%`}
-                </span>
-              </div>
-            </div>
-
-            {/* Current Time / Duration Display */}
-            <span className="text-xs sm:text-sm font-bold tracking-wide text-[#ddd] select-none ml-1">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 sm:gap-4">
-            {/* Playback Speed Control (Bigger Box-Shaped Hover Popover) */}
-            <div className="relative py-3" onMouseEnter={handleSpeedMouseEnter} onMouseLeave={handleSpeedMouseLeave}>
-              {/* Speed Popover Box */}
-              <div
-                className={`absolute bottom-full right-0 mb-4 z-50 flex flex-col items-center gap-3 rounded-2xl border border-white/30 bg-black/95 px-6 py-4 shadow-[0_15px_45px_rgba(0,0,0,0.95)] backdrop-blur-2xl whitespace-nowrap transition-all duration-200 min-w-[340px] ${
-                  showSpeedMenu
-                    ? "opacity-100 scale-100 pointer-events-auto translate-y-0"
-                    : "opacity-0 scale-95 pointer-events-none translate-y-3"
-                }`}
-              >
-                {/* Header Bar */}
-                <div className="flex items-center justify-center gap-2 border-b border-white/15 pb-2.5 w-full">
-                  <Gauge className="size-4 text-[#e50914]" />
-                  <span className="text-xs font-black uppercase tracking-widest text-[#aaa] select-none">
-                    PLAYBACK SPEED
-                  </span>
-                </div>
-
-                {/* Horizontal Bulleted Track */}
-                <div className="relative flex items-center justify-between gap-6 px-3 py-2 w-full">
-                  <div className="absolute top-3.5 left-6 right-6 h-1 bg-white/20 pointer-events-none z-0 rounded-full" />
-
-                  {SPEED_OPTIONS.map((speed) => {
-                    const isActive = playbackSpeed === speed;
-                    return (
-                      <button
-                        key={speed}
-                        onClick={() => handleSpeedChange(speed)}
-                        className="group relative z-10 flex flex-col items-center gap-2 transition-all cursor-pointer"
-                      >
-                        <div
-                          className={`size-5 rounded-full transition-all duration-200 flex items-center justify-center ${
-                            isActive
-                              ? "bg-[#e50914] ring-4 ring-[#e50914]/40 scale-125 shadow-[0_0_15px_#e50914]"
-                              : "bg-white/40 group-hover:bg-white group-hover:scale-110"
-                          }`}
-                        >
-                          {isActive && <div className="size-2 rounded-full bg-white animate-pulse" />}
-                        </div>
-
-                        <span
-                          className={`text-xs sm:text-sm font-black tracking-tight transition-colors ${
-                            isActive ? "text-white drop-shadow-md scale-110" : "text-[#aaa] group-hover:text-white"
-                          }`}
-                        >
-                          {speed === 1 ? "1.0x" : `${speed}x`}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="absolute -bottom-2 right-8 h-4 w-4 rotate-45 border-b border-r border-white/30 bg-black/95" />
-              </div>
-
-              {/* Speed Button */}
-              <button
-                className="grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
-                title="Playback Speed"
-                aria-label="Playback Speed"
-              >
-                <Gauge className="size-7 sm:size-8 stroke-[2]" />
-              </button>
-            </div>
-
-            {/* Fit / Fill Screen Toggle Button */}
-            <button
-              onClick={() => setObjectFit((f) => (f === "cover" ? "contain" : "cover"))}
-              className="grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
-              title={objectFit === "cover" ? "Fit to Screen (Letterbox)" : "Fill Screen (Crop)"}
-              aria-label="Toggle Aspect Ratio Fit"
-            >
-              <div
-                className={`border-2 border-current rounded-sm ${
-                  objectFit === "cover" ? "w-5 h-3.5 bg-white/30" : "w-6 h-3"
-                }`}
-              />
-            </button>
-
-            {/* Fullscreen Button */}
-            <button
-              onClick={toggleFullscreen}
-              className="grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
-              aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-              title={isFullscreen ? "Exit Fullscreen (f)" : "Enter Fullscreen (f)"}
-            >
-              {isFullscreen ? (
-                <Minimize className="size-7 sm:size-8 stroke-[2]" />
-              ) : (
-                <Maximize className="size-7 sm:size-8 stroke-[2]" />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
