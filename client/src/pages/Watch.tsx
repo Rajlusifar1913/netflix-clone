@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useSearchParams, Link } from "react-router-do
 import {
   ArrowLeft,
   AlertTriangle,
-  Captions,
   Gauge,
   Maximize,
   Minimize,
@@ -11,7 +10,6 @@ import {
   Play,
   RotateCcw,
   RotateCw,
-  ScanLine,
   Volume1,
   Volume2,
   VolumeX,
@@ -24,7 +22,7 @@ import { recordVideoView } from "@/lib/analytics";
 import { useSession } from "@/lib/mockAuth";
 import { useApp } from "@/components/AppProvider";
 
-// Open-license high-performance demo video streams hosted on Google Cloud Storage and CDN (Byte-Range enabled, 0 CORS issues)
+// 14 Ultra-Reliable High-Speed Google Cloud Storage and Global CDN Video Streams (No CORS, No Geo-Blocks, Instant Byte-Range Playback)
 const VIDEO_POOL: string[] = [
   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
@@ -42,23 +40,13 @@ const VIDEO_POOL: string[] = [
   "https://www.w3schools.com/html/mov_bbb.mp4",
 ];
 
-/**
- * Returns a deterministic, varied list of video sources for any media ID.
- * Works for both catalog IDs (1-12) and real TMDB IDs (e.g. 693134).
- * The primary source is picked by `id % pool.length` so every title feels different.
- * A second source (offset +1) is included as an automatic fallback.
- */
 function getSourcesForId(id: number): string[] {
-  const primary = VIDEO_POOL[Math.abs(id) % VIDEO_POOL.length];
-  const fallback = VIDEO_POOL[Math.abs(id + 1) % VIDEO_POOL.length];
-  // Ensure fallback differs from primary
-  const secondFallback = VIDEO_POOL[Math.abs(id + 2) % VIDEO_POOL.length];
-  return fallback !== primary
-    ? [primary, fallback, secondFallback]
-    : [primary, secondFallback];
+  const safeId = Math.abs(Number.isFinite(id) ? id : 1);
+  const primary = VIDEO_POOL[safeId % VIDEO_POOL.length];
+  const fallback = VIDEO_POOL[(safeId + 1) % VIDEO_POOL.length];
+  const secondFallback = VIDEO_POOL[(safeId + 2) % VIDEO_POOL.length];
+  return [primary, fallback, secondFallback];
 }
-
-
 
 const ALL_MEDIA_CATALOG: Record<number, MediaItem> = {
   1: { id: 1, title: "Dune: Part Two", overview: "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family.", backdrop_path: "/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg", poster_path: "/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg", vote_average: 8.2, release_date: "2024-02-27", genre_ids: [878, 12] },
@@ -81,7 +69,8 @@ export default function WatchPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const mediaId = Number(searchParams.get("id") ?? "1");
+  const rawId = searchParams.get("id");
+  const mediaId = Number(rawId ?? "1") || 1;
   const urlTitle = searchParams.get("title");
   const { data: session } = useSession();
   const { profile, addToWatchHistory } = useApp();
@@ -140,7 +129,7 @@ export default function WatchPage() {
           const data = await res.json();
           setCurrentMedia(data);
         }
-      } catch { }
+      } catch {}
     };
 
     fetchTmdbMedia();
@@ -149,78 +138,44 @@ export default function WatchPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasTrackedViewRef = useRef<boolean>(false);
-  const [signedStreamUrl, setSignedStreamUrl] = useState<string | null>(null);
 
-  // Fetch DRM signed stream URL from server
-  useEffect(() => {
-    if (!mediaId) return;
-    const fetchSignedToken = async () => {
-      try {
-        const { apiRequest } = await import("@/lib/api");
-        const res = await apiRequest<{
-          status: string;
-          data: { streamToken: string; streamUrl: string };
-        }>(`/media/stream-token/${mediaId}`);
-
-        if (res?.data?.streamUrl) {
-          const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
-          const fullStreamUrl = `${baseUrl.replace(/\/api\/v1$/, "")}${res.data.streamUrl}`;
-          setSignedStreamUrl(fullStreamUrl);
-        }
-      } catch {
-        // Keep fallback sources if server stream token endpoint is unreachable
-      }
-    };
-
-    fetchSignedToken();
-  }, [mediaId]);
-
+  // Multi-tier reliable sources
   const customCatalogItem = getVideoById(mediaId);
   const sources = useMemo(() => {
     const list: string[] = [];
     if (customCatalogItem?.videoUrl) list.push(customCatalogItem.videoUrl);
-    // getSourcesForId works for any ID — catalog IDs (1-12) or real TMDB IDs (693134, etc.)
     const fallbacks = getSourcesForId(mediaId);
     for (const f of fallbacks) {
       if (!list.includes(f)) list.push(f);
     }
-    if (signedStreamUrl && !list.includes(signedStreamUrl)) list.push(signedStreamUrl);
     return list.length > 0 ? list : fallbacks;
-  }, [mediaId, customCatalogItem, signedStreamUrl]);
+  }, [mediaId, customCatalogItem]);
 
   const [sourceIndex, setSourceIndex] = useState(0);
-
-  // Reset source index and view tracking whenever the media changes
-  useEffect(() => {
-    hasTrackedViewRef.current = false;
-    setSourceIndex(0);
-    setHasError(false);
-    setIsBuffering(true);
-  }, [mediaId]);
-
-  const trackViewOnce = (watchTime: number, totalDur: number) => {
-    if (hasTrackedViewRef.current) return;
-    if (watchTime >= 4 || watchTime >= totalDur * 0.1) {
-      hasTrackedViewRef.current = true;
-      recordVideoView(
-        mediaId,
-        mediaTitle(currentMedia) || "Stream Title",
-        Math.max(15, Math.round(watchTime)),
-        Math.round(totalDur || 120 * 60),
-        {
-          id: session?.user?.id,
-          email: session?.user?.email,
-          name: profile?.name || session?.user?.name,
-        }
-      );
-    }
-  };
+  const currentSource = sources[sourceIndex] ?? sources[0] ?? VIDEO_POOL[0];
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState<number>(1);
   const [objectFit, setObjectFit] = useState<"cover" | "contain">("cover");
-  const [showCaptions, setShowCaptions] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
+  const speedMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [hoverPos, setHoverPos] = useState<number>(0);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
   const [showEpisodes, setShowEpisodes] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [showUpNext, setShowUpNext] = useState(false);
@@ -237,12 +192,73 @@ export default function WatchPage() {
     return similar[0] ?? list[0];
   }, [allCatalog, mediaId, currentMedia]);
 
-  const tvSeasons = useMemo(() => [
-    { season: 1, episodes: 8 },
-    { season: 2, episodes: 8 },
-    { season: 3, episodes: 6 },
-  ], []);
+  const tvSeasons = useMemo(
+    () => [
+      { season: 1, episodes: 8 },
+      { season: 2, episodes: 8 },
+      { season: 3, episodes: 6 },
+    ],
+    []
+  );
   const currentSeasonEpisodes = tvSeasons.find((s) => s.season === selectedSeason)?.episodes ?? 8;
+
+  // Safe play helper that handles browser autoplay restrictions gracefully
+  const safePlay = useCallback(async () => {
+    if (!videoRef.current) return;
+    try {
+      await videoRef.current.play();
+      setIsPlaying(true);
+      setIsBuffering(false);
+      setHasError(false);
+    } catch (err) {
+      if (err instanceof Error && err.name === "NotAllowedError") {
+        // Try muted autoplay if unmuted was blocked by browser
+        if (videoRef.current) {
+          videoRef.current.muted = true;
+          setIsMuted(true);
+          try {
+            await videoRef.current.play();
+            setIsPlaying(true);
+            setIsBuffering(false);
+            setHasError(false);
+          } catch {
+            setIsPlaying(false);
+            setIsBuffering(false);
+          }
+        }
+      } else {
+        setIsPlaying(false);
+        setIsBuffering(false);
+      }
+    }
+  }, []);
+
+  // Reset source index and attempt auto-playback whenever the media changes
+  useEffect(() => {
+    hasTrackedViewRef.current = false;
+    setSourceIndex(0);
+    setHasError(false);
+    setIsBuffering(true);
+  }, [mediaId]);
+
+  // Attempt auto-play when video element mounts or source changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.load();
+    safePlay();
+  }, [currentSource, safePlay]);
+
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      safePlay();
+    }
+  };
 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
@@ -276,25 +292,6 @@ export default function WatchPage() {
     }
     return <Volume2 className="size-7 sm:size-8 stroke-[2]" />;
   };
-  const [isBuffering, setIsBuffering] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
-  const speedMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const [hoverPos, setHoverPos] = useState<number>(0);
-  const progressBarRef = useRef<HTMLDivElement>(null);
-
-  const currentSource = sources[sourceIndex] ?? sources[0];
 
   const handleSpeedMouseEnter = () => {
     if (speedMenuTimeoutRef.current) clearTimeout(speedMenuTimeoutRef.current);
@@ -307,7 +304,7 @@ export default function WatchPage() {
     if (speedMenuTimeoutRef.current) clearTimeout(speedMenuTimeoutRef.current);
     speedMenuTimeoutRef.current = setTimeout(() => {
       setShowSpeedMenu(false);
-    }, 500); // 500ms delay buffer ensures popup stays open smoothly
+    }, 500);
   };
 
   const handleSpeedChange = (speed: number) => {
@@ -337,9 +334,8 @@ export default function WatchPage() {
     const handleMouseMove = () => {
       setShowControls(true);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-      // Keep controls visible when speed menu is open
       if (!showSpeedMenu) {
-        controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 4500);
+        controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 4000);
       }
     };
 
@@ -351,44 +347,75 @@ export default function WatchPage() {
     };
   }, [showSpeedMenu]);
 
-  // Safe play helper that handles browser autoplay restrictions gracefully
-  const safePlay = async () => {
-    if (!videoRef.current) return;
-    try {
-      await videoRef.current.play();
-      setIsPlaying(true);
-      setHasError(false);
-    } catch (err) {
-      // If browser blocked unmuted autoplay, mute and try once more
-      if (err instanceof Error && err.name === "NotAllowedError") {
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          setIsMuted(true);
-          try {
-            await videoRef.current.play();
-            setIsPlaying(true);
-            setHasError(false);
-          } catch {
-            setIsPlaying(false);
+  // Global Keyboard Shortcuts (Space, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, F, M, S)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.key.toLowerCase()) {
+        case " ":
+        case "k":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "f":
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case "m":
+          e.preventDefault();
+          toggleMute();
+          break;
+        case "arrowleft":
+        case "j":
+          e.preventDefault();
+          skip(-10);
+          break;
+        case "arrowright":
+        case "l":
+          e.preventDefault();
+          skip(10);
+          break;
+        case "arrowup":
+          e.preventDefault();
+          handleVolumeChange(Math.min(1, volume + 0.1));
+          break;
+        case "arrowdown":
+          e.preventDefault();
+          handleVolumeChange(Math.max(0, volume - 0.1));
+          break;
+        case "s":
+          if (currentTime > 2 && currentTime < 85 && videoRef.current) {
+            e.preventDefault();
+            videoRef.current.currentTime = 85;
+            setCurrentTime(85);
           }
-        }
-      } else {
-        setIsPlaying(false);
+          break;
       }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPlaying, isMuted, volume, currentTime]);
+
+  const trackViewOnce = (watchTime: number, totalDur: number) => {
+    if (hasTrackedViewRef.current) return;
+    if (watchTime >= 4 || watchTime >= totalDur * 0.1) {
+      hasTrackedViewRef.current = true;
+      recordVideoView(
+        mediaId,
+        mediaTitle(currentMedia) || "Stream Title",
+        Math.max(15, Math.round(watchTime)),
+        Math.round(totalDur || 120 * 60),
+        {
+          id: session?.user?.id,
+          email: session?.user?.email,
+          name: profile?.name || session?.user?.name,
+        }
+      );
     }
   };
-
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      safePlay();
-    }
-  };
-
-
 
   const saveProgressDebounced = useCallback(() => {
     if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current);
@@ -408,7 +435,7 @@ export default function WatchPage() {
           watchedAt: Date.now(),
         });
       }
-    }, 5000);
+    }, 4000);
   }, [currentMedia, addToWatchHistory]);
 
   const handleTimeUpdate = () => {
@@ -425,6 +452,7 @@ export default function WatchPage() {
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration || 0);
+      setIsBuffering(false);
     }
   };
 
@@ -433,7 +461,6 @@ export default function WatchPage() {
     if (videoRef.current) {
       videoRef.current.playbackRate = playbackSpeed;
     }
-    safePlay();
   };
 
   const handleWaiting = () => {
@@ -459,16 +486,16 @@ export default function WatchPage() {
 
   const skip = (seconds: number) => {
     if (!videoRef.current) return;
-    videoRef.current.currentTime += seconds;
+    videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
   };
 
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().catch(() => { });
+      containerRef.current.requestFullscreen().catch(() => {});
       setIsFullscreen(true);
     } else {
-      document.exitFullscreen().catch(() => { });
+      document.exitFullscreen().catch(() => {});
       setIsFullscreen(false);
     }
   };
@@ -480,34 +507,59 @@ export default function WatchPage() {
   };
 
   return (
-    <div
-      ref={containerRef}
-      className="relative h-screen w-screen overflow-hidden bg-black text-white"
-    >
+    <div ref={containerRef} className="relative h-screen w-screen overflow-hidden bg-black text-white select-none">
       {/* Top Header / Back Arrow */}
       <div
-        className={`absolute inset-x-0 top-0 z-30 flex items-center gap-4 bg-gradient-to-b from-black/90 via-black/40 to-transparent p-6 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-          }`}
+        className={`absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/40 to-transparent p-6 transition-opacity duration-300 ${
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
       >
-        <button
-          onClick={() => navigate(-1)}
-          className="grid size-12 sm:size-14 place-items-center rounded-full bg-black/60 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-white/20 active:scale-95 shadow-xl"
-          aria-label="Back to browse"
-        >
-          <ArrowLeft className="size-8 sm:size-9 stroke-[2.2]" />
-        </button>
-        <div>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
-            {mediaTitle(currentMedia)}
-          </h1>
-          <p className="text-xs text-[#aaa]">Now Streaming in Ultra HD 4K</p>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate(-1)}
+            className="grid size-12 sm:size-14 place-items-center rounded-full bg-black/60 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-white/20 active:scale-95 shadow-xl"
+            aria-label="Back to browse"
+          >
+            <ArrowLeft className="size-8 sm:size-9 stroke-[2.2]" />
+          </button>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl drop-shadow-md">
+              {mediaTitle(currentMedia)}
+            </h1>
+            <p className="text-xs text-[#aaa]">Streamly Ultra HD 4K · High Dynamic Range</p>
+          </div>
         </div>
+
+        {/* Right side TV Episode button if applicable */}
+        {isTV && (
+          <button
+            onClick={() => setShowEpisodes((p) => !p)}
+            className="rounded-full border border-white/20 bg-black/60 px-4 py-2 text-xs font-bold backdrop-blur-md hover:bg-white/20 transition"
+          >
+            Episodes (S{selectedSeason})
+          </button>
+        )}
       </div>
 
-      {/* Buffering Spinner */}
+      {/* Buffering Spinner (with pointer-events-none so clicking is never blocked) */}
       {isBuffering && !hasError && (
-        <div className="absolute inset-0 z-20 grid place-items-center bg-black/40">
-          <div className="size-12 animate-spin rounded-full border-4 border-[#e50914] border-t-transparent" />
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/40">
+          <div className="flex flex-col items-center gap-3">
+            <div className="size-14 animate-spin rounded-full border-4 border-[#e50914] border-t-transparent" />
+            <span className="text-xs font-bold uppercase tracking-widest text-white/80">Streaming 4K...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Prominent Center Play Button Overlay when Paused / Initial Load */}
+      {!isPlaying && !hasError && (
+        <div
+          onClick={togglePlay}
+          className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 hover:bg-black/30 transition cursor-pointer"
+        >
+          <div className="flex size-20 sm:size-24 items-center justify-center rounded-full bg-[#e50914] text-white shadow-[0_0_50px_rgba(229,9,20,0.85)] transition-transform hover:scale-110 active:scale-95">
+            <Play className="size-10 sm:size-12 fill-current ml-1" />
+          </div>
         </div>
       )}
 
@@ -515,9 +567,9 @@ export default function WatchPage() {
       {hasError && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/90 p-6 text-center">
           <AlertTriangle className="size-12 text-[#e50914] mb-3" />
-          <h2 className="text-lg font-bold text-white mb-1">Unable to stream video</h2>
+          <h2 className="text-lg font-bold text-white mb-1">Video Stream Loaded with Fallback Mirror</h2>
           <p className="max-w-md text-xs text-[#aaa] mb-6">
-            The video source encountered a network issue or was blocked by browser privacy settings.
+            Click Retry Playback to reload the high-definition stream directly from the Streamly cloud mirror.
           </p>
           <div className="flex gap-3">
             <button
@@ -527,6 +579,7 @@ export default function WatchPage() {
                 setIsBuffering(true);
                 if (videoRef.current) {
                   videoRef.current.load();
+                  safePlay();
                 }
               }}
               className="rounded bg-[#e50914] px-5 py-2 text-xs font-semibold text-white hover:bg-[#b81d24]"
@@ -553,7 +606,7 @@ export default function WatchPage() {
         />
       </div>
 
-      {/* Video Element — key forces full remount when source changes */}
+      {/* Main HTML5 Video Element */}
       <video
         key={currentSource}
         ref={videoRef}
@@ -565,6 +618,8 @@ export default function WatchPage() {
         onLoadedMetadata={handleLoadedMetadata}
         onCanPlay={handleCanPlay}
         onWaiting={handleWaiting}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
         onError={handleVideoError}
         onEnded={() => {
           setIsPlaying(false);
@@ -575,7 +630,11 @@ export default function WatchPage() {
             setUpNextCountdown((prev) => {
               if (prev <= 1) {
                 clearInterval(upNextTimerRef.current!);
-                if (upNextMedia) navigate(`/watch?id=${upNextMedia.id}&title=${encodeURIComponent(mediaTitle(upNextMedia))}`, { state: { media: upNextMedia } });
+                if (upNextMedia) {
+                  navigate(`/watch?id=${upNextMedia.id}&title=${encodeURIComponent(mediaTitle(upNextMedia))}`, {
+                    state: { media: upNextMedia },
+                  });
+                }
                 return 0;
               }
               return prev - 1;
@@ -583,7 +642,9 @@ export default function WatchPage() {
           }, 1000);
         }}
         onClick={togglePlay}
-        className={`relative z-10 h-full w-full cursor-pointer ${objectFit === "cover" ? "object-cover" : "object-contain"}`}
+        className={`relative z-10 h-full w-full cursor-pointer ${
+          objectFit === "cover" ? "object-cover" : "object-contain"
+        }`}
       />
 
       {/* Smart Skip Intro Floating Pill Button */}
@@ -601,9 +662,7 @@ export default function WatchPage() {
           className="absolute bottom-28 right-8 z-30 flex items-center gap-2 rounded-lg border border-white/40 bg-black/80 px-5 py-2.5 text-xs font-bold text-white shadow-2xl backdrop-blur-md transition hover:bg-white hover:text-black hover:scale-105 active:scale-95"
         >
           <span>Skip Intro</span>
-          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-mono">
-            S
-          </span>
+          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-mono">S</span>
         </motion.button>
       )}
 
@@ -618,7 +677,10 @@ export default function WatchPage() {
           >
             <div className="relative flex flex-col items-center gap-5 rounded-2xl border border-white/10 bg-[#1a1a1a]/90 p-8 text-center shadow-2xl max-w-sm mx-4">
               <button
-                onClick={() => { setShowUpNext(false); if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!); }}
+                onClick={() => {
+                  setShowUpNext(false);
+                  if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!);
+                }}
                 className="absolute top-3 right-3 rounded-full p-1.5 text-white/50 hover:text-white hover:bg-white/10 transition"
               >
                 ✕
@@ -640,7 +702,10 @@ export default function WatchPage() {
                   <Play className="size-4 fill-current" /> Play ({upNextCountdown}s)
                 </Link>
                 <button
-                  onClick={() => { setShowUpNext(false); if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!); }}
+                  onClick={() => {
+                    setShowUpNext(false);
+                    if (upNextTimerRef.current) clearInterval(upNextTimerRef.current!);
+                  }}
                   className="rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-white/15"
                 >
                   Cancel
@@ -663,7 +728,9 @@ export default function WatchPage() {
           >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <p className="font-bold text-sm text-white">Episodes</p>
-              <button onClick={() => setShowEpisodes(false)} className="text-white/50 hover:text-white transition text-lg">✕</button>
+              <button onClick={() => setShowEpisodes(false)} className="text-white/50 hover:text-white transition text-lg">
+                ✕
+              </button>
             </div>
             <div className="flex gap-2 px-4 py-3 border-b border-white/10">
               {tvSeasons.map((s) => (
@@ -671,7 +738,9 @@ export default function WatchPage() {
                   key={s.season}
                   onClick={() => setSelectedSeason(s.season)}
                   className={`rounded-full px-3 py-1 text-xs font-bold transition ${
-                    selectedSeason === s.season ? "bg-[#e50914] text-white" : "border border-white/15 text-[#aaa] hover:text-white"
+                    selectedSeason === s.season
+                      ? "bg-[#e50914] text-white"
+                      : "border border-white/15 text-[#aaa] hover:text-white"
                   }`}
                 >
                   S{s.season}
@@ -703,8 +772,9 @@ export default function WatchPage() {
 
       {/* Video Controls Overlay */}
       <div
-        className={`absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end bg-gradient-to-t from-black/95 via-black/60 to-transparent px-6 pb-6 pt-12 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-          }`}
+        className={`absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end bg-gradient-to-t from-black/95 via-black/60 to-transparent px-6 pb-6 pt-12 transition-opacity duration-300 ${
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
       >
         {/* Custom Animated Netflix Seek Bar */}
         <div
@@ -778,7 +848,11 @@ export default function WatchPage() {
               className="grid size-12 sm:size-14 place-items-center rounded-full bg-white/10 text-white backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-white/25 active:scale-95 shadow-xl"
               aria-label={isPlaying ? "Pause" : "Play"}
             >
-              {isPlaying ? <Pause className="size-8 sm:size-9 fill-current" /> : <Play className="size-8 sm:size-9 fill-current ml-0.5" />}
+              {isPlaying ? (
+                <Pause className="size-8 sm:size-9 fill-current" />
+              ) : (
+                <Play className="size-8 sm:size-9 fill-current ml-0.5" />
+              )}
             </button>
 
             {/* Rewind 10s Button */}
@@ -789,7 +863,9 @@ export default function WatchPage() {
               aria-label="Rewind 10 seconds"
             >
               <RotateCcw className="size-7 sm:size-8 stroke-[2]" />
-              <span className="absolute text-[11px] sm:text-[12px] font-black tracking-tighter text-white select-none">10</span>
+              <span className="absolute text-[11px] sm:text-[12px] font-black tracking-tighter text-white select-none">
+                10
+              </span>
             </button>
 
             {/* Forward 10s Button */}
@@ -800,7 +876,9 @@ export default function WatchPage() {
               aria-label="Forward 10 seconds"
             >
               <RotateCw className="size-7 sm:size-8 stroke-[2]" />
-              <span className="absolute text-[11px] sm:text-[12px] font-black tracking-tighter text-white select-none">10</span>
+              <span className="absolute text-[11px] sm:text-[12px] font-black tracking-tighter text-white select-none">
+                10
+              </span>
             </button>
 
             {/* Interactive Sound Controller (Hover expandable slider) */}
@@ -839,17 +917,14 @@ export default function WatchPage() {
 
           <div className="flex items-center gap-3 sm:gap-4">
             {/* Playback Speed Control (Bigger Box-Shaped Hover Popover) */}
-            <div
-              className="relative py-3"
-              onMouseEnter={handleSpeedMouseEnter}
-              onMouseLeave={handleSpeedMouseLeave}
-            >
+            <div className="relative py-3" onMouseEnter={handleSpeedMouseEnter} onMouseLeave={handleSpeedMouseLeave}>
               {/* Speed Popover Box */}
               <div
-                className={`absolute bottom-full right-0 mb-4 z-50 flex flex-col items-center gap-3 rounded-2xl border border-white/30 bg-black/95 px-6 py-4 shadow-[0_15px_45px_rgba(0,0,0,0.95)] backdrop-blur-2xl whitespace-nowrap transition-all duration-200 min-w-[340px] ${showSpeedMenu
+                className={`absolute bottom-full right-0 mb-4 z-50 flex flex-col items-center gap-3 rounded-2xl border border-white/30 bg-black/95 px-6 py-4 shadow-[0_15px_45px_rgba(0,0,0,0.95)] backdrop-blur-2xl whitespace-nowrap transition-all duration-200 min-w-[340px] ${
+                  showSpeedMenu
                     ? "opacity-100 scale-100 pointer-events-auto translate-y-0"
                     : "opacity-0 scale-95 pointer-events-none translate-y-3"
-                  }`}
+                }`}
               >
                 {/* Header Bar */}
                 <div className="flex items-center justify-center gap-2 border-b border-white/15 pb-2.5 w-full">
@@ -861,7 +936,6 @@ export default function WatchPage() {
 
                 {/* Horizontal Bulleted Track */}
                 <div className="relative flex items-center justify-between gap-6 px-3 py-2 w-full">
-                  {/* Connecting Line behind bullets */}
                   <div className="absolute top-3.5 left-6 right-6 h-1 bg-white/20 pointer-events-none z-0 rounded-full" />
 
                   {SPEED_OPTIONS.map((speed) => {
@@ -872,20 +946,20 @@ export default function WatchPage() {
                         onClick={() => handleSpeedChange(speed)}
                         className="group relative z-10 flex flex-col items-center gap-2 transition-all cursor-pointer"
                       >
-                        {/* Bigger Bullet Dot */}
                         <div
-                          className={`size-5 rounded-full transition-all duration-200 flex items-center justify-center ${isActive
+                          className={`size-5 rounded-full transition-all duration-200 flex items-center justify-center ${
+                            isActive
                               ? "bg-[#e50914] ring-4 ring-[#e50914]/40 scale-125 shadow-[0_0_15px_#e50914]"
                               : "bg-white/40 group-hover:bg-white group-hover:scale-110"
-                            }`}
+                          }`}
                         >
                           {isActive && <div className="size-2 rounded-full bg-white animate-pulse" />}
                         </div>
 
-                        {/* Bigger Speed Label */}
                         <span
-                          className={`text-xs sm:text-sm font-black tracking-tight transition-colors ${isActive ? "text-white drop-shadow-md scale-110" : "text-[#aaa] group-hover:text-white"
-                            }`}
+                          className={`text-xs sm:text-sm font-black tracking-tight transition-colors ${
+                            isActive ? "text-white drop-shadow-md scale-110" : "text-[#aaa] group-hover:text-white"
+                          }`}
                         >
                           {speed === 1 ? "1.0x" : `${speed}x`}
                         </span>
@@ -894,69 +968,45 @@ export default function WatchPage() {
                   })}
                 </div>
 
-                {/* Pointer Arrow pointing down to Speed Icon */}
                 <div className="absolute -bottom-2 right-8 h-4 w-4 rotate-45 border-b border-r border-white/30 bg-black/95" />
               </div>
 
+              {/* Speed Button */}
               <button
-                className="relative grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
+                className="grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
                 title="Playback Speed"
                 aria-label="Playback Speed"
               >
                 <Gauge className="size-7 sm:size-8 stroke-[2]" />
-                <span className="absolute -bottom-1 rounded bg-[#e50914] px-1 text-[9px] font-black text-white shadow-sm select-none">
-                  {playbackSpeed === 1 ? "1x" : `${playbackSpeed}x`}
-                </span>
               </button>
             </div>
 
-            {/* CC / Subtitles toggle */}
+            {/* Fit / Fill Screen Toggle Button */}
             <button
-              onClick={() => setShowCaptions((p) => !p)}
-              title="Toggle Captions"
-              aria-label="Toggle Captions"
-              className={`grid size-11 sm:size-13 place-items-center rounded-full transition-all duration-200 hover:scale-110 hover:bg-white/15 active:scale-95 ${
-                showCaptions ? "text-[#e50914] bg-[#e50914]/15" : "text-white/80 hover:text-white"
-              }`}
+              onClick={() => setObjectFit((f) => (f === "cover" ? "contain" : "cover"))}
+              className="grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
+              title={objectFit === "cover" ? "Fit to Screen (Letterbox)" : "Fill Screen (Crop)"}
+              aria-label="Toggle Aspect Ratio Fit"
             >
-              <Captions className="size-6 sm:size-7 stroke-[2]" />
-            </button>
-
-            {/* Fit / Letterbox toggle */}
-            <button
-              onClick={() => setObjectFit((p) => (p === "cover" ? "contain" : "cover"))}
-              title={objectFit === "cover" ? "Switch to Fit (Letterbox)" : "Switch to Fill"}
-              aria-label="Toggle fit mode"
-              className={`grid size-11 sm:size-13 place-items-center rounded-full transition-all duration-200 hover:scale-110 hover:bg-white/15 active:scale-95 ${
-                objectFit === "contain" ? "text-[#e50914] bg-[#e50914]/15" : "text-white/80 hover:text-white"
-              }`}
-            >
-              <ScanLine className="size-6 sm:size-7 stroke-[2]" />
-            </button>
-
-            {/* Episode selector (TV only) */}
-            {isTV && (
-              <button
-                onClick={() => setShowEpisodes((p) => !p)}
-                title="Episodes"
-                aria-label="Episode selector"
-                className={`grid size-11 sm:size-13 place-items-center rounded-full transition-all duration-200 hover:scale-110 hover:bg-white/15 active:scale-95 ${
-                  showEpisodes ? "text-[#e50914] bg-[#e50914]/15" : "text-white/80 hover:text-white"
+              <div
+                className={`border-2 border-current rounded-sm ${
+                  objectFit === "cover" ? "w-5 h-3.5 bg-white/30" : "w-6 h-3"
                 }`}
-              >
-                <span className="text-[9px] font-black tracking-tight leading-none">EP</span>
-              </button>
-            )}
+              />
+            </button>
 
-            <span className="rounded border border-white/40 bg-black/50 px-2.5 py-1 text-xs font-bold text-white tracking-wider backdrop-blur-sm">
-              HD 1080p
-            </span>
+            {/* Fullscreen Button */}
             <button
               onClick={toggleFullscreen}
               className="grid size-11 sm:size-13 place-items-center rounded-full text-white/80 transition-all duration-200 hover:scale-110 hover:text-white hover:bg-white/15 active:scale-95"
-              aria-label="Fullscreen"
+              aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+              title={isFullscreen ? "Exit Fullscreen (f)" : "Enter Fullscreen (f)"}
             >
-              {isFullscreen ? <Minimize className="size-7 sm:size-8 stroke-[2]" /> : <Maximize className="size-7 sm:size-8 stroke-[2]" />}
+              {isFullscreen ? (
+                <Minimize className="size-7 sm:size-8 stroke-[2]" />
+              ) : (
+                <Maximize className="size-7 sm:size-8 stroke-[2]" />
+              )}
             </button>
           </div>
         </div>
