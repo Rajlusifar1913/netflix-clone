@@ -557,24 +557,7 @@ export default function WatchPage() {
         }`}
       />
 
-      {/* Smart Skip Intro Floating Pill Button */}
-      {currentTime > 2 && currentTime < 85 && (
-        <motion.button
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 20 }}
-          onClick={() => {
-            if (videoRef.current) {
-              videoRef.current.currentTime = 85;
-              setCurrentTime(85);
-            }
-          }}
-          className="absolute bottom-28 right-8 z-30 flex items-center gap-2 rounded-lg border border-white/40 bg-black/80 px-5 py-2.5 text-xs font-bold text-white shadow-2xl backdrop-blur-md transition hover:bg-white hover:text-black hover:scale-105 active:scale-95"
-        >
-          <span>Skip Intro</span>
-          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-mono">S</span>
-        </motion.button>
-      )}
+
 
       {/* Up Next Overlay */}
       <AnimatePresence>
