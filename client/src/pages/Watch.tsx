@@ -24,21 +24,22 @@ import { recordVideoView } from "@/lib/analytics";
 import { useSession } from "@/lib/mockAuth";
 import { useApp } from "@/components/AppProvider";
 
-// Open-license demo videos hosted on Archive.org and VideoJS CDN — no geo-restrictions
+// Open-license high-performance demo video streams hosted on Google Cloud Storage and CDN (Byte-Range enabled, 0 CORS issues)
 const VIDEO_POOL: string[] = [
-  // Blender Open Films via Archive.org (no geo-block, works everywhere)
-  "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4",
-  "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4",
-  "https://archive.org/download/Sintel/sintel-2048-surround.mp4",
-  "https://archive.org/download/TearsOfSteel/tears_of_steel_720p.mp4",
-  // VideoJS sample (reliable global CDN)
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4",
   "https://vjs.zencdn.net/v/oceans.mp4",
-  // W3Schools / W3C hosted samples (always accessible)
   "https://www.w3schools.com/html/mov_bbb.mp4",
-  // Additional Archive.org open films
-  "https://archive.org/download/CosmosLaundromat/Cosmos%20Laundromat%20-%20First%20Cycle%20-%20Official%20Blender%20Foundation%20release.mp4",
-  "https://archive.org/download/glasshalf-FilmShortFilm27651/glass_half.mp4",
-  "https://archive.org/download/youtube-BaW_jenozKc/BaW_jenozKc.mp4",
 ];
 
 /**
@@ -177,11 +178,14 @@ export default function WatchPage() {
   const customCatalogItem = getVideoById(mediaId);
   const sources = useMemo(() => {
     const list: string[] = [];
-    if (signedStreamUrl) list.push(signedStreamUrl);
     if (customCatalogItem?.videoUrl) list.push(customCatalogItem.videoUrl);
     // getSourcesForId works for any ID — catalog IDs (1-12) or real TMDB IDs (693134, etc.)
     const fallbacks = getSourcesForId(mediaId);
-    return list.length > 0 ? [...list, ...fallbacks] : fallbacks;
+    for (const f of fallbacks) {
+      if (!list.includes(f)) list.push(f);
+    }
+    if (signedStreamUrl && !list.includes(signedStreamUrl)) list.push(signedStreamUrl);
+    return list.length > 0 ? list : fallbacks;
   }, [mediaId, customCatalogItem, signedStreamUrl]);
 
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -554,8 +558,9 @@ export default function WatchPage() {
         key={currentSource}
         ref={videoRef}
         src={currentSource}
+        autoPlay
         playsInline
-        crossOrigin="anonymous"
+        preload="auto"
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onCanPlay={handleCanPlay}
