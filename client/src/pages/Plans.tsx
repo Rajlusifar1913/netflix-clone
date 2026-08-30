@@ -19,6 +19,7 @@ import { useSession, signOut } from "@/lib/mockAuth";
 import { useApp } from "@/components/AppProvider";
 import { apiRequest } from "@/lib/api";
 import { DEFAULT_PLANS, getActivePlans, type SubscriptionPlanItem } from "@/lib/plansStore";
+import { updateSubscriptionCache } from "@/components/SubscriptionGuard";
 
 export default function PlansPage() {
   const navigate = useNavigate();
@@ -136,10 +137,11 @@ export default function PlansPage() {
       });
 
       if (res.status === "success") {
+        updateSubscriptionCache(session?.user?.email || "", true);
         showToast(`🎉 Payment of ${selectedPlan.price} received! Your ${selectedPlan.name} plan is now active.`, "success");
         setTimeout(() => {
           navigate("/browse", { replace: true });
-        }, 600);
+        }, 400);
       } else {
         throw new Error(res.message || "Payment processing failed. Please try again.");
       }
